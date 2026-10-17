@@ -242,7 +242,7 @@ PDO 是把对象"打包"进过程数据的方式：
 | 0x02 | EoE | 4 B | FrameType/Port + FragmentNumber + CompleteSize + FrameNumber | 隧道以太网、Web/Modbus/TCP |
 | 0x03 | CoE | 2 B | Service + Index/SubIndex | SDO/PDO/Emergency |
 | 0x04 | FoE | 2 B | OpCode + Password/FileName/PacketNo | 固件与文件传输 |
-| 0x0F | SoE | 2 B + 可选长度 | IDN（16 位） | SERCOS 伺服参数 |
+| 0x05 | SoE | 2 B | IDN（16 位） | SERCOS 伺服参数 |
 
 **EoE** 把一整个以太网帧（去掉前导码、SFD、FCS）切进邮箱，按 32 字节为一个 block，
 用 FragmentNumber / Offset 重组；最后一个分片把 LastFragment 置 1，可追加 4 字节时间戳。
@@ -253,7 +253,7 @@ PDO 是把对象"打包"进过程数据的方式：
 推荐在 BOOT 状态做，此时邮箱只允许 FoE。
 
 **SoE** 沿用 SERCOS 的 IDN 参数模型（S-0-xxxx / P-0-xxxx），与 CoE 的 Index/SubIndex 是两套体系。
-注意：本地 ETG 文档只定义了 SoE 作为邮箱协议的存在（Type=0x0F、AL Status Code 0x0045），
+注意：本地 ETG 文档只定义了 SoE 作为邮箱协议的存在（Type=0x05、AL Status Code 0x0045），
 报文的逐字节结构在 IEC 61800-7-204 里，不在 ETG.1000 里。
 
 〔ETG.1000.6 §5.6–5.8 / IEC 61800-7-204〕

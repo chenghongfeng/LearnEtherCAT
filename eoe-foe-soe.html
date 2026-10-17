@@ -667,11 +667,11 @@ function renderFoe() {
 /* ================= SoE ================= */
 function renderSoe() {
   // SoE 报文示意：邮箱头(6) + SoE 头(2: OpCode + 保留/长度) + IDN(2) + 数据(4)
-  const raw = [0x0C, 0x00, 0xE8, 0x03, 0x8F, 0x00, 0x01, 0x00, 0x47, 0x00, 0x00, 0x00];
+  const raw = [0x0C, 0x00, 0xE8, 0x03, 0x05, 0x00, 0x01, 0x00, 0x47, 0x00, 0x00, 0x00];
   const layout = [
     ['Len 0C', 2, 'p-mbx', tip('Mailbox Length', '2 B', '其后服务数据长度。')],
     ['Addr', 2, 'p-mbx', tip('Station Address', '2 B', '站地址。')],
-    ['Type=0x0F', 1, 'p-mbx', tip('Type = 0x0F (SoE) / Length Bit=1', '1 B · 0x8F', '低 4 位 0x0F = SoE；最高位是 SoE 的 Length Bit：1 = 帧里有长度字段。')],
+    ['Type=0x05', 1, 'p-mbx', tip('Type = 0x05 (SoE)', '1 B · 0x05', '邮箱头低 4 位：0x05 = SoE（0x0F 是 VoE，别混）。')],
     ['Rsv', 1, 'p-mbx', tip('Reserved', '1 B', '0x00。')],
     ['OpCode', 1, 'p-soe', tip('SoE OpCode', '1 B · 外部标准', 'SoE 服务码；具体取值见 IEC 61800-7-204。')],
     ['Flags', 1, 'p-soe', tip('Flags / 保留', '1 B · 外部标准', 'SoE 头的第二个字节，随服务变化。')],

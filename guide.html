@@ -190,10 +190,10 @@ ESC #0 ──► ESC #1 ──► ESC #2 ──► ESC #3 ──► ESC #4
 <p>〔ETG.1000.6 §5.6 / ETG.1500 §5.7〕</p>
 <h3 id="t-4-3-CoE-之外的三种邮箱协议">4.3 CoE 之外的三种邮箱协议</h3>
 <p>同一个邮箱通道，靠 Mailbox Header 的 Type 字段分流：</p>
-<div class="scroll"><table class="tbl"><thead><tr><th>Type</th><th>协议</th><th>头长度</th><th>关键结构</th><th>典型用途</th></tr></thead><tbody><tr><td>0x01</td><td>AoE</td><td>6 B</td><td>Port + IndexGroup + IndexOffset</td><td>倍福 ADS、路由</td></tr><tr><td>0x02</td><td>EoE</td><td>4 B</td><td>FrameType/Port + FragmentNumber + CompleteSize + FrameNumber</td><td>隧道以太网、Web/Modbus/TCP</td></tr><tr><td>0x03</td><td>CoE</td><td>2 B</td><td>Service + Index/SubIndex</td><td>SDO/PDO/Emergency</td></tr><tr><td>0x04</td><td>FoE</td><td>2 B</td><td>OpCode + Password/FileName/PacketNo</td><td>固件与文件传输</td></tr><tr><td>0x0F</td><td>SoE</td><td>2 B + 可选长度</td><td>IDN（16 位）</td><td>SERCOS 伺服参数</td></tr></tbody></table></div>
+<div class="scroll"><table class="tbl"><thead><tr><th>Type</th><th>协议</th><th>头长度</th><th>关键结构</th><th>典型用途</th></tr></thead><tbody><tr><td>0x01</td><td>AoE</td><td>6 B</td><td>Port + IndexGroup + IndexOffset</td><td>倍福 ADS、路由</td></tr><tr><td>0x02</td><td>EoE</td><td>4 B</td><td>FrameType/Port + FragmentNumber + CompleteSize + FrameNumber</td><td>隧道以太网、Web/Modbus/TCP</td></tr><tr><td>0x03</td><td>CoE</td><td>2 B</td><td>Service + Index/SubIndex</td><td>SDO/PDO/Emergency</td></tr><tr><td>0x04</td><td>FoE</td><td>2 B</td><td>OpCode + Password/FileName/PacketNo</td><td>固件与文件传输</td></tr><tr><td>0x05</td><td>SoE</td><td>2 B</td><td>IDN（16 位）</td><td>SERCOS 伺服参数</td></tr></tbody></table></div>
 <p><strong>EoE</strong> 把一整个以太网帧（去掉前导码、SFD、FCS）切进邮箱，按 32 字节为一个 block， 用 FragmentNumber / Offset 重组；最后一个分片把 LastFragment 置 1，可追加 4 字节时间戳。 它是"停等"式的，吞吐受邮箱大小和主站轮询周期限制。</p>
 <p><strong>FoE</strong> 只有六个操作码：Read(0x01) / Write(0x02) / Data(0x03) / Ack(0x04) / Error(0x05) / Busy(0x06)。 固件升级 = Write Request 打开文件 + 循环 Data/Ack；从站擦 Flash 时可用 Busy 拖住主站。 推荐在 BOOT 状态做，此时邮箱只允许 FoE。</p>
-<p><strong>SoE</strong> 沿用 SERCOS 的 IDN 参数模型（S-0-xxxx / P-0-xxxx），与 CoE 的 Index/SubIndex 是两套体系。 注意：本地 ETG 文档只定义了 SoE 作为邮箱协议的存在（Type=0x0F、AL Status Code 0x0045）， 报文的逐字节结构在 IEC 61800-7-204 里，不在 ETG.1000 里。</p>
+<p><strong>SoE</strong> 沿用 SERCOS 的 IDN 参数模型（S-0-xxxx / P-0-xxxx），与 CoE 的 Index/SubIndex 是两套体系。 注意：本地 ETG 文档只定义了 SoE 作为邮箱协议的存在（Type=0x05、AL Status Code 0x0045）， 报文的逐字节结构在 IEC 61800-7-204 里，不在 ETG.1000 里。</p>
 <p>〔ETG.1000.6 §5.6–5.8 / IEC 61800-7-204〕</p>
 <hr>
 <h2 id="t-5-分布式时钟-确定性的最后一公里">5. 分布式时钟：确定性的最后一公里</h2>
