@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>分布式时钟 · EtherCAT 可视化</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1c26'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='none' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='11' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3EEC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+<style>
+  .dc-stage{background:#080e14;border:1px solid var(--line);border-radius:16px;overflow:hidden}
+  .dc-stage svg{display:block;width:100%;height:auto}
+  .reg{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:11.5px;font-family:var(--mono)}
+  .reg .k{color:var(--text-faint)}
+  .reg .v{color:#9fe0ff}
+  .clock-row{display:grid;grid-template-columns:70px 1fr 96px;gap:10px;align-items:center;padding:7px 0;border-bottom:1px dashed #16222f}
+  .clock-row:last-child{border-bottom:0}
+  .bar{height:8px;border-radius:99px;background:#101a24;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:99px}
+  .mono-lg{font-family:var(--mono);font-size:15px;color:#dff1ff}
+  .lag{font-family:var(--mono);font-size:12px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="side" id="side-slot"></div>
+  <div class="main">
+    <div class="topbar" id="top-slot"></div>
+    <div class="wrap">
+
+      <div class="page-head">
+        <div class="eyebrow">ETG.1000.4 §6.8 · ETG.1020 · ETG.1500 §5.13</div>
+        <h1>分布式时钟 <small>让 100 个从站在同一微秒里动作</small></h1>
+        <p class="lede">
+          EtherCAT 的 DC（Distributed Clocks）不是“对时协议”，而是把<b>第一个支持 DC 的从站的本地时钟</b>当作系统时间，
+          沿环测量传播延时、写入偏移，再用漂移补偿让所有从站的时钟以极小误差跟随它；
+          最后由 SYNC0 产生本地同步脉冲，触发采样与输出。
+        </p>
+      </div>
+
+      <h2 id="principle">1 · 三步建立同步</h2>
+      <div class="grid g3">
+        <div class="card">
+          <div class="badge m">Step 1</div>
+          <h3>测传播延时</h3>
+          <p class="small muted">
+            主站发一帧绕环。每个从站记录“端口 0 收到 SOF”和“端口 1 收到 SOF”的时刻，
+            差值 <code class="mono">0x0980</code> 就包含了下游链路的传播时间。逐级累加即可得到每个从站相对参考时钟的延时。
+          </p>
+          <p class="small"><span class="src">ETG.1000.4 §6.8 · 寄存器 0x0900–0x0980</span></p>
+        </div>
+        <div class="card">
+          <div class="badge s">Step 2</div>
+          <h3>写偏移</h3>
+          <p class="small muted">
+            参考时钟把系统时间写进帧；其它从站在帧经过时把自己的本地时间与帧里的系统时间相减，
+            结果写进 <code class="mono">0x0920</code> 系统时间偏移。之后“系统时间 = 本地时间 − 偏移”。
+          </p>
+          <p class="small"><span class="src">ETG.1000.4 §6.8.2</span></p>
+        </div>
+        <div class="card">
+          <div class="badge w">Step 3</div>
+          <h3>持续补偿漂移</h3>
+          <p class="small muted">
+            晶振有温漂。主站周期性用 <b>ARMW/FRMW</b> 读参考时钟的漂移值并“多写”到所有从站
+            （<code class="mono">0x0928</code>），让每个从站微调自己的时钟速率。
+          </p>
+          <p class="small"><span class="src">ETG.1000.4 §5.4.1.8 / ETG.1500 §5.13.2</span></p>
+        </div>
+      </div>
+
+      <div class="note" style="margin-top:14px">
+        <b>为什么用 ARMW/FRMW？</b> 这两种命令“读一个从站、写所有从站”：读回来的漂移值会被广播写进每个从站的同一寄存器，
+        一次帧就完成全网补偿，不需要 N 次单独写。
+      </div>
+
+      <h2 id="sim">2 · 跑一遍：漂移、补偿与 SYNC0</h2>
+      <p class="lede">
+        下面 4 个从站各有自己的晶振（ppm 不同）。开启“漂移补偿”后，每 2 ms 一次 ARMW 会把误差拉回；
+        关闭后看它们如何越走越偏，以及 SYNC0 如何被拉偏。
+      </p>
+
+      <div class="grid g23">
+        <div>
+          <div class="dc-stage" id="stage"></div>
+          <div class="toolbar" style="margin-top:12px">
+            <button class="btn sm primary" id="btn-run">▶ 开始</button>
+            <button class="btn sm" id="btn-reset">复位</button>
+            <div class="seg" id="speed">
+              <button data-v="1" class="on">1×</button>
+              <button data-v="4">4×</button>
+              <button data-v="16">16×</button>
+            </div>
+            <div class="spacer"></div>
+            <label class="small muted" style="display:flex;gap:6px;align-items:center">
+              <input type="checkbox" id="comp" checked> 漂移补偿 (ARMW)
+            </label>
+          </div>
+        </div>
+
+        <div class="side-panel">
+          <div class="card">
+            <div class="small faint" style="letter-spacing:.1em">系统时间（参考时钟）</div>
+            <div class="mono-lg" id="sys-time">0.000000 s</div>
+            <div class="hr"></div>
+            <div class="reg" id="regs"></div>
+          </div>
+          <div class="card">
+            <div class="small faint" style="letter-spacing:.1em;margin-bottom:6px">各从站误差（ns）</div>
+            <div id="clocks"></div>
+          </div>
+          <div class="card" style="padding:12px">
+            <div class="small faint" style="letter-spacing:.1em;margin-bottom:6px">SYNC0 脉冲</div>
+            <div id="sync-info" class="small muted">未启动</div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="regs">3 · DC 相关寄存器速查</h2>
+      <div class="scroll">
+        <table class="tbl" id="dc-reg-tbl"></table>
+      </div>
+
+      <h2 id="pitfall">4 · 现场最常踩的四个 DC 坑</h2>
+      <div class="grid g2">
+        <div class="card">
+          <h3 style="margin-top:0">① 参考时钟选错</h3>
+          <p class="small muted">
+            参考时钟默认是“第一个支持 DC 的从站”。如果拓扑变化或该从站被换掉，系统时间基准会变，
+            所有偏移需重算。部分主站允许显式指定参考从站。
+          </p>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">② SYNC0 周期与主站周期不整除</h3>
+          <p class="small muted">
+            SYNC0 周期必须是主站周期的整数倍（或相等），否则每个周期都会出现“半个脉冲”的相位跳变，
+            表现为周期性抖动。
+          </p>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">③ 只做了偏移，没做漂移</h3>
+          <p class="small muted">
+            偏移是“一次性对齐”，晶振仍会漂。必须周期性 ARMW/FRMW 补偿，否则几分钟后误差就到微秒级。
+          </p>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">④ 用 DC 却忘了 SYNC 信号</h3>
+          <p class="small muted">
+            DC 只对齐“时间”，真正的采样/输出动作由 SYNC0/SYNC1 触发。只读时间不接 SYNC，
+            应用层的节拍仍然是本地循环。
+          </p>
+        </div>
+      </div>
+
+      <footer class="end">
+        <a href="slave.html">← ESI / SII</a>
+        <span>下一站：<a href="spec.html">规范地图 →</a></span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/ec-core.js"></script>
+<script>
+const { REGS } = EC_DATA;
+const { renderShell, fmt, hex0x } = EC_UI;
+
+renderShell({ active: 'dc', crumbs: ['学习站', '时间同步', 'Distributed Clocks'], title: 'ETG.1000.4 §6.8' });
+
+/* ---------------- 模型 ---------------- */
+const slaves = [
+  { name: 'ESC #0', ppm: 0,    ref: true,  color: '#38bdf8' },
+  { name: 'ESC #1', ppm: 18,   ref: false, color: '#a78bfa' },
+  { name: 'ESC #2', ppm: -27,  ref: false, color: '#fbbf24' },
+  { name: 'ESC #3', ppm: 41,   ref: false, color: '#34d399' },
+];
+const NS = 1e9;
+let t = 0;                 // 系统时间 (ns)
+let running = false;
+let speed = 1;
+let raf = null;
+let last = 0;
+let compOn = true;
+let nextArmw = 0;
+let armwPeriod = 2e6;      // 2 ms
+let syncPeriod = 1e6;      // 1 ms
+let lastSync = 0;
+let syncCount = 0;
+
+/* 每个从站：offset（本地-系统），drift（累计误差 ns），propDelay（传播延时 ns） */
+const st = slaves.map((s, i) => ({
+  offsetErr: i === 0 ? 0 : 120 + i * 85,   // 初始偏移误差（故意没对齐，单位 ns）
+  driftErr: i === 0 ? 0 : (Math.random() - 0.5) * 300,
+  delay: i * 290 + 40,                     // 传播延时估算
+  syncJitter: 0,
+}));
+
+const stage = document.getElementById('stage');
+
+/* ---------------- 绘制 ---------------- */
+function draw() {
+  const W = 880, H = 380;
+  const baseY = 250;
+  const parts = [];
+
+  // 时间轴
+  parts.push(`<line x1="60" y1="${baseY}" x2="${W - 30}" y2="${baseY}" stroke="#1e2c3c"/>`);
+  parts.push(`<text x="60" y="${baseY + 18}" fill="#5a6b7d" font-size="9">t</text>`);
+
+  // 参考时钟线（0 误差）
+  parts.push(`<line x1="60" y1="${baseY}" x2="${W - 30}" y2="${baseY}" stroke="#38bdf8" stroke-width="1.2" opacity=".5"/>`);
+  parts.push(`<text x="${W - 30}" y="${baseY - 6}" fill="#38bdf8" font-size="9" text-anchor="end">参考时钟</text>`);
+
+  slaves.forEach((s, i) => {
+    const y = 70 + i * 40;
+    const err = st[i].driftErr + st[i].offsetErr;
+    const norm = Math.max(-1, Math.min(1, err / 1500));
+    const x = 380 + norm * 240;
+    parts.push(`
+      <g>
+        <text x="60" y="${y + 4}" fill="#5a6b7d" font-size="9">${s.name}</text>
+        <line x1="120" y1="${y}" x2="${W - 30}" y2="${y}" stroke="#0f1a24"/>
+        <line x1="120" y1="${y - 8}" x2="120" y2="${y + 8}" stroke="#2a3a4c"/>
+        <text x="126" y="${y - 10}" fill="#3b4a5a" font-size="8">理想位置</text>
+        <circle cx="${x}" cy="${y}" r="${s.ref ? 6 : 5}" fill="${s.color}"/>
+        <line x1="380" y1="${y - 10}" x2="${x}" y2="${y - 10}" stroke="${s.color}" stroke-width="1" opacity=".35"/>
+        <text x="${W - 30}" y="${y + 4}" fill="${s.color}" font-size="9" text-anchor="end">
+          ${err >= 0 ? '+' : ''}${err.toFixed(0)} ns
+        </text>
+      </g>`);
+  });
+
+  // SYNC0 脉冲
+  if (running) {
+    const phase = (t % syncPeriod) / syncPeriod;
+    parts.push(`
+      <g transform="translate(60,${H - 66})">
+        <text x="0" y="-8" fill="#5a6b7d" font-size="9">SYNC0（参考）</text>
+        <line x1="0" y1="10" x2="520" y2="10" stroke="#2a3a4c"/>
+        ${Array.from({ length: 6 }, (_, k) => {
+          const x = k * 86 + 20;
+          return `<line x1="${x}" y1="10" x2="${x}" y2="-4" stroke="#34d399" stroke-width="2"/>`;
+        }).join('')}
+        <line x1="${phase * 520}" y1="10" x2="${phase * 520}" y2="-10" stroke="#fb7185" stroke-width="1" opacity=".8"/>
+      </g>`);
+  }
+
+  // 全局时间轴
+  parts.push(`<text x="60" y="${H - 8}" fill="#3b4a5a" font-size="8.5">
+    横轴是相对参考时钟的误差（±1.5 µs 满量程）；补偿开启时每 2 ms 一次 ARMW 把误差压回中心</text>`);
+
+  stage.innerHTML = `<svg viewBox="0 0 ${W} ${H}">${parts.join('')}</svg>`;
+}
+
+function drawRegs() {
+  const err0 = st[1].driftErr;
+  const rows = [
+    ['0x0900 系统时间', `${(t / NS).toFixed(6)} s`],
+    ['0x0910 接收时间', `${((t + st[0].delay) / NS).toFixed(6)} s`],
+    ['0x0920 偏移 ESC#1', `${fmt(st[1].offsetErr, 0)} ns`],
+    ['0x0928 漂移 ESC#1', `${fmt(err0, 0)} ns`],
+    ['0x0980 延时 ESC#1', `${st[1].delay} ns`],
+    ['0x0C00 DC 激活', '0x0300（SYNC0 + 锁存）'],
+  ];
+  document.getElementById('regs').innerHTML = rows.map(([k, v]) =>
+    `<span class="k">${k}</span><span class="v">${v}</span>`).join('');
+
+  document.getElementById('sys-time').textContent = (t / NS).toFixed(6) + ' s';
+
+  document.getElementById('clocks').innerHTML = slaves.map((s, i) => {
+    const err = st[i].driftErr + st[i].offsetErr;
+    const pct = Math.min(100, Math.abs(err) / 1500 * 100);
+    return `<div class="clock-row">
+      <span style="color:${s.color};font-size:11.5px">${s.name}${s.ref ? ' ★' : ''}</span>
+      <div class="bar"><i style="width:${pct}%;background:${pct > 60 ? '#fb7185' : s.color}"></i></div>
+      <span class="lag" style="color:${Math.abs(err) > 500 ? '#fda4af' : '#9fb6c9'};text-align:right">
+        ${err >= 0 ? '+' : ''}${err.toFixed(0)} ns</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('sync-info').innerHTML = running
+    ? `已产生 <b style="color:#86efac">${syncCount}</b> 个 SYNC0 脉冲<br>
+       周期 1.000 ms · 抖动 ≈ ${fmt(Math.abs(st[3].driftErr) / 50, 1)} ns`
+    : '未启动';
+}
+
+/* ---------------- 循环 ---------------- */
+function tick(now) {
+  if (!running) return;
+  if (!last) last = now;
+  const dtReal = Math.min(80, now - last);   // ms
+  last = now;
+  const dtNs = dtReal * 1e6 * speed;
+  t += dtNs;
+
+  // 每个从站按 ppm 漂移（1 ppm = 1e-6 相对误差）
+  // 同时：启动阶段偏移误差按 0.4 s 时间常数收敛到 0（模拟 Step 2 写偏移）
+  const alignK = Math.exp(-dtNs / 4e8);
+  st.forEach((s, i) => {
+    if (i === 0) return;
+    const perMs = (slaves[i].ppm * 1e-6) * dtNs;   // ns
+    s.driftErr += perMs;
+    s.offsetErr *= alignK;
+  });
+
+  // ARMW 周期补偿
+  if (compOn && t >= nextArmw) {
+    nextArmw = t + armwPeriod;
+    st.forEach((s, i) => {
+      if (i === 0) return;
+      s.driftErr *= 0.06;   // 补偿后残余 6%
+    });
+  }
+
+  // SYNC0
+  if (t - lastSync >= syncPeriod) {
+    lastSync = t;
+    syncCount++;
+    st.forEach((s, i) => {
+      if (i === 0) return;
+      s.syncJitter = s.driftErr * 0.05;
+    });
+  }
+
+  draw();
+  drawRegs();
+  raf = requestAnimationFrame(tick);
+}
+
+/* ---------------- 控制 ---------------- */
+document.getElementById('btn-run').addEventListener('click', e => {
+  running = !running;
+  e.target.textContent = running ? '❚❚ 暂停' : '▶ 继续';
+  if (running) { last = 0; raf = requestAnimationFrame(tick); }
+  else { cancelAnimationFrame(raf); }
+});
+document.getElementById('btn-reset').addEventListener('click', () => {
+  running = false; cancelAnimationFrame(raf);
+  document.getElementById('btn-run').textContent = '▶ 开始';
+  t = 0; last = 0; nextArmw = 0; lastSync = 0; syncCount = 0;
+  st.forEach((s, i) => {
+    s.offsetErr = i === 0 ? 0 : 120 + i * 85;
+    s.driftErr = i === 0 ? 0 : (Math.random() - 0.5) * 300;
+  });
+  draw(); drawRegs();
+});
+document.getElementById('speed').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#speed button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  speed = +b.dataset.v;
+});
+document.getElementById('comp').addEventListener('change', e => {
+  compOn = e.target.checked;
+});
+
+/* ---------------- 寄存器表 ---------------- */
+const DC_REGS = REGS.filter(r => r.addr.startsWith('0x09') || r.addr === '0x0C00' || r.addr === '0x0500');
+document.getElementById('dc-reg-tbl').innerHTML = `
+  <thead><tr><th>地址</th><th>名称</th><th>宽度</th><th>读写</th><th>作用</th></tr></thead>
+  <tbody>${DC_REGS.map(r => `<tr>
+    <td class="mono" style="color:#7dd3fc">${r.addr}</td>
+    <td>${r.name}</td><td class="num">${r.size} B</td><td class="mono small">${r.rw}</td>
+    <td class="small muted">${r.note}</td>
+  </tr>`).join('')}</tbody>`;
+
+/* 初始渲染：即使不点开始，也要先画出时间轴与寄存器 */
+draw();
+drawRegs();
+</script>
+
+<div class="selfcheck sc-idle" id="selfcheck" data-state="idle" role="status" aria-live="polite" tabindex="0"
+     title="脚本未执行：若通过 file:// 打开，请确认 assets/js/ec-core.js 存在；否则按 F12 查看控制台">
+  <span class="sc-dot"></span><span class="sc-text">脚本未执行</span>
+</div>
+
+</body>
+</html>

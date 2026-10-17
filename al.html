@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>从站与状态机 · EtherCAT 可视化</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1c26'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='none' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='11' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3EEC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+<style>
+  .esm-stage{background:#080e14;border:1px solid var(--line);border-radius:16px;overflow:hidden}
+  .esm-stage svg{display:block;width:100%;height:auto}
+  .esm-state{cursor:pointer}
+  .esm-state rect{transition:.2s}
+  .esm-state:hover rect{filter:brightness(1.2)}
+  .regbits{display:flex;gap:2px;flex-wrap:nowrap;font-family:var(--mono);font-size:10px}
+  .regbits .b{width:20px;height:22px;display:grid;place-items:center;border:1px solid var(--line);border-radius:3px;background:#0a121a;color:#3b4a5a}
+  .regbits .b.on{background:#123a52;color:#9fe0ff;border-color:#1e5876}
+  .regbits .b.hi{background:#3b1d80;color:#d8c7ff;border-color:#4c1d95}
+  .mail{display:flex;gap:2px;flex-wrap:wrap;margin:8px 0}
+  .mail .byte{width:34px;height:44px;border-radius:5px;border:1px solid rgba(255,255,255,.1);display:flex;flex-direction:column;justify-content:space-between;padding:3px 3px;font-family:var(--mono);font-size:10px;cursor:default}
+  .mail .byte .v{font-weight:700;font-size:11px;color:#eaf6ff}
+  .mail .byte .n{font-size:8px;color:rgba(255,255,255,.6);white-space:nowrap;overflow:hidden}
+  .m-mbx{background:linear-gradient(180deg,#4c1d95,#2e1259)}
+  .m-coe{background:linear-gradient(180deg,#075985,#053a4d)}
+  .m-sdo{background:linear-gradient(180deg,#065f46,#043d2e)}
+  .m-data{background:linear-gradient(180deg,#78350f,#4a2008)}
+  .flow{display:grid;grid-template-columns:1fr 60px 1fr;gap:0;align-items:center}
+  .flow .arrow{color:var(--text-faint);font-size:16px;text-align:center;font-family:var(--mono)}
+  .tabs{display:flex;gap:2px;background:#0a121a;border:1px solid var(--line);border-radius:10px;padding:3px;flex-wrap:wrap}
+  .tabs button{font:600 12px var(--sans);color:var(--text-dim);background:transparent;border:0;padding:6px 11px;border-radius:7px;cursor:pointer}
+  .tabs button.on{background:#1b2a3a;color:#e9f5ff}
+  .codebadge{font-family:var(--mono);font-size:12px;color:#7dd3fc}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="side" id="side-slot"></div>
+  <div class="main">
+    <div class="topbar" id="top-slot"></div>
+    <div class="wrap">
+
+      <div class="page-head">
+        <div class="eyebrow">ETG.1000.6 §5.3–5.6 · ETG.1020 §4</div>
+        <h1>从站与状态机 <small>ESM、AL 寄存器、邮箱与 SDO</small></h1>
+        <p class="lede">
+          EtherCAT 的“应用层”没有想象中复杂：一台从站就是<b>一个状态机 + 一张对象字典 + 两条邮箱通道</b>。
+          状态机决定“能不能交换过程数据”，对象字典决定“能交换什么”，邮箱负责“配置期怎么说话”。
+        </p>
+      </div>
+
+      <h2 id="esm">1 · ESM：五个状态，一条主线</h2>
+      <p class="lede">
+        主站通过写 <code class="mono">AL Control (0x0120)</code> 请求目标状态，从站把当前状态放在
+        <code class="mono">AL Status (0x0130)</code>，出错时把原因放进 <code class="mono">AL Status Code (0x0134)</code>。
+        每次迁移都要“请求 → 确认”，并且只有无错误时才能向上走。
+        <span class="src">ETG.1000.6 Table 103（完整迁移表）</span>
+      </p>
+
+      <div class="esm-wrap">
+        <div class="esm-stage" id="esm-stage"></div>
+        <div>
+          <div class="card" style="padding:16px">
+            <div class="small faint" style="letter-spacing:.1em">当前状态</div>
+            <div style="font-size:22px;font-weight:700;margin:2px 0 4px" id="esm-state">INIT</div>
+            <div class="small muted" id="esm-desc">—</div>
+            <div class="hr"></div>
+            <div class="small faint" style="letter-spacing:.1em;margin-bottom:6px">AL Control（主站写）</div>
+            <div class="regbits" id="al-control"></div>
+            <div class="mono small" style="margin-top:6px;color:#9fe0ff" id="al-control-hex">0x0000</div>
+            <div class="small faint" style="letter-spacing:.1em;margin:12px 0 6px">AL Status（从站读）</div>
+            <div class="regbits" id="al-status"></div>
+            <div class="mono small" style="margin-top:6px;color:#9fe0ff" id="al-status-hex">0x0001</div>
+            <div class="small" style="margin-top:10px">AL Status Code：<b class="codebadge" id="al-code">0x0000</b></div>
+          </div>
+          <div class="card" style="padding:14px;margin-top:12px">
+            <div class="small faint" style="letter-spacing:.1em;margin-bottom:8px">可选迁移</div>
+            <div id="trans-btns" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+            <div class="hr"></div>
+            <div class="small muted" id="trans-note">选一个目标状态。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <h3 style="margin-top:0">迁移日志</h3>
+        <div class="log" id="esm-log" style="height:150px"></div>
+        <div class="toolbar" style="margin-bottom:0">
+          <button class="btn sm" id="sc-start">▶ 走一遍正常启动</button>
+          <button class="btn sm" id="sc-err">⚠ 制造一个 SM 配置错误</button>
+          <button class="btn sm ghost" id="sc-reset">复位</button>
+        </div>
+      </div>
+
+      <h2 id="mailbox">2 · 邮箱：6 字节头 + 协议头</h2>
+      <p class="lede">
+        邮箱走 SyncManager 0（主→从）和 1（从→主）。每个邮箱报文 = <b>6 B Mailbox Header</b> +
+        <b>协议头</b>（CoE/EoE/FoE/SoE/AoE）+ 数据。Type 字段区分协议：0x03=CoE、0x01=AoE、0x02=EoE、0x04=FoE、0x05=SoE。
+        <span class="src">ETG.1000.6 §5.6 / Table 29</span>
+      </p>
+      <div class="card pad">
+        <div class="tabs" id="mb-tabs">
+          <button data-t="head" class="on">邮箱头字段</button>
+          <button data-t="exp">SDO 快速读（expedited）</button>
+          <button data-t="seg">SDO 分段读（segmented）</button>
+          <button data-t="ca">Complete Access</button>
+          <button data-t="em">Emergency</button>
+        </div>
+        <div id="mb-body" style="margin-top:14px"></div>
+      </div>
+      <p class="small muted" style="margin-top:10px">
+        EoE / FoE / SoE 的逐字节拆解、分片与固件下载时序，见
+        <a href="eoe-foe-soe.html">EoE / FoE / SoE 报文页 →</a>
+      </p>
+
+      <h2 id="alstatus">3 · AL Status Code 与现场诊断</h2>
+      <p class="lede">
+        从站报错时，<code class="mono">AL Status</code> 的 Error 位置 1，状态停在原位或退回；
+        <code class="mono">AL Status Code</code> 给出原因。ETG.1020 §4 有完整码表，下面是最常踩的几类。
+      </p>
+      <div class="scroll">
+        <table class="tbl" id="code-tbl"></table>
+      </div>
+
+      <h2 id="pdo">4 · PDO 与对象字典：数据到底放在哪</h2>
+      <div class="grid g2">
+        <div class="card">
+          <h3 style="margin-top:0">对象字典结构</h3>
+          <pre class="code">Index (16 bit)   SubIndex (8 bit)   Value
+0x1000           :00               Device Type
+0x1018           :01..04           Vendor/Product/Rev/Serial
+0x1C12           :01..n            RxPDO 分配
+0x1C13           :01..n            TxPDO 分配
+0x6000 / 0x7000  :01..n            厂商自定义输入/输出</pre>
+          <p class="small muted">
+            0x1C12/0x1C13 决定“哪些 PDO 参与交换”，0x16xx/0x1Axx 决定“每个 PDO 里放哪些对象”。
+            主站必须在 PREOP 阶段完成这两级配置。
+          </p>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">从对象到帧里的字节</h3>
+          <div class="mono small" style="line-height:1.9">
+            对象 <span style="color:#7dd3fc">0x6000:01</span> (16 bit) ┐<br>
+            对象 <span style="color:#7dd3fc">0x6000:02</span> (8 bit)  ├─ PDO 0x1A00 ─ TxPDO
+            对象 <span style="color:#7dd3fc">0x6010:01</span> (32 bit) ┘<br>
+            <span class="faint">↓ 主站按 ESI 计算偏移</span><br>
+            过程映像偏移 <b>+0x0000</b> … <b>+0x0006</b><br>
+            <span class="faint">↓ FMMU 映射</span><br>
+            逻辑地址 <b>0x1000</b> … <b>0x1006</b><br>
+            <span class="faint">↓ LRW PDU 数据区</span><br>
+            帧内字节 <b>[0]…[6]</b>
+          </div>
+          <p class="small muted" style="margin-top:10px">
+            这就是为什么 ESI 里的 PDO 顺序、位宽、对齐必须和固件里的对象字典完全一致——错一个字节，主站拿到的就是错位数据。
+          </p>
+        </div>
+      </div>
+
+      <footer class="end">
+        <a href="master.html">← 主站视角</a>
+        <span>下一站：<a href="slave.html">ESI / SII →</a></span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/ec-core.js"></script>
+<script>
+const { ESM, REGS } = EC_DATA;
+const { renderShell, hex, hex0x, bin } = EC_UI;
+
+renderShell({ active: 'al', crumbs: ['学习站', '从站', 'ESM 与邮箱'], title: 'ETG.1000.6 §5.3' });
+
+/* ================= ESM 状态机 ================= */
+const ST = {
+  INIT:   { code: 1, color: '#64748b', x: 120, y: 210 },
+  PREOP:  { code: 2, color: '#38bdf8', x: 330, y: 110 },
+  SAFEOP: { code: 4, color: '#fbbf24', x: 560, y: 110 },
+  OP:     { code: 8, color: '#4ade80', x: 770, y: 190 },
+  BOOT:   { code: 3, color: '#fb7185', x: 330, y: 280 },
+};
+const TRANS = {
+  INIT:   { PREOP: { code: 0x0000, why: '邮箱 SM0/SM1 配置正确，进入 PREOP' }, BOOT: { code: 0x0000, why: '允许 FoE 固件下载' } },
+  PREOP:  { INIT: { code: 0x0000, why: '回退到 INIT' }, SAFEOP: { code: 0x0000, why: 'SM2/SM3 与 FMMU 配置正确' } },
+  SAFEOP: { PREOP: { code: 0x0000, why: '回退，停止输出' }, OP: { code: 0x0000, why: '输出已就绪' }, INIT: { code: 0x0000, why: '强制复位' } },
+  OP:     { SAFEOP: { code: 0x0000, why: '输出退回安全值' }, PREOP: { code: 0x0000, why: '停止过程数据' }, INIT: { code: 0x0000, why: '强制复位' } },
+  BOOT:   { INIT: { code: 0x0000, why: '固件下载结束' } },
+};
+let cur = 'INIT';
+let errFlag = 0, alCode = 0x0000;
+
+const stage = document.getElementById('esm-stage');
+
+function drawESM() {
+  const W = 900, H = 360;
+  const edges = [];
+  for (const [a, tos] of Object.entries(TRANS)) {
+    for (const b of Object.keys(tos)) {
+      if (a === b) continue;
+      const A = ST[a], B = ST[b];
+      const mx = (A.x + B.x) / 2 + (A.y < B.y ? -30 : 30);
+      const my = (A.y + B.y) / 2 + (A.y < B.y ? -18 : 18);
+      edges.push(`<path d="M${A.x + 46} ${A.y} Q ${mx} ${my} ${B.x + 46} ${B.y}"
+        fill="none" stroke="#243b50" stroke-width="1.2" marker-end="url(#ear)"/>`);
+    }
+  }
+  const nodes = Object.entries(ST).map(([k, v]) => {
+    const on = k === cur;
+    return `<g class="esm-state" data-k="${k}">
+      <rect x="${v.x - 46}" y="${v.y - 30}" width="92" height="60" rx="12"
+        fill="${on ? v.color + '22' : '#0b131b'}" stroke="${on ? v.color : '#2a3a4c'}" stroke-width="${on ? 2 : 1.2}"/>
+      ${on ? `<circle cx="${v.x}" cy="${v.y - 46}" r="7" fill="${v.color}"/>` : ''}
+      <text x="${v.x}" y="${v.y - 4}" text-anchor="middle" fill="${on ? v.color : '#c9dcec'}" font-size="13" font-weight="700">${k}</text>
+      <text x="${v.x}" y="${v.y + 13}" text-anchor="middle" fill="#5a6b7d" font-size="9">AL Control = ${hex0x(v.code)}</text>
+      <text x="${v.x}" y="${v.y + 25}" text-anchor="middle" fill="#3b4a5a" font-size="8">${v.code}</text>
+    </g>`;
+  }).join('');
+
+  stage.innerHTML = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <defs><marker id="ear" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#243b50"/></marker></defs>
+    ${edges}
+    ${nodes}
+    <text x="20" y="24" fill="#5a6b7d" font-size="10">点击状态节点，或在右侧选择可迁移目标</text>
+    <text x="20" y="${H - 10}" fill="#3b4a5a" font-size="9">向上迁移需无错误；任何 AL 错误都会阻止进入 OP 并可能退回 PREOP/INIT</text>
+  </svg>`;
+
+  stage.querySelectorAll('.esm-state').forEach(n =>
+    n.addEventListener('click', () => selectState(n.dataset.k)));
+}
+
+function selectState(k) {
+  cur = k;
+  const s = ST[k];
+  document.getElementById('esm-state').textContent = k;
+  document.getElementById('esm-state').style.color = s.color;
+  document.getElementById('esm-desc').textContent =
+    (ESM.find(e => e.key === k) || {}).desc || '';
+  drawESM();
+  renderRegs();
+  renderTrans();
+}
+
+function renderRegs() {
+  const ctl = ST[cur].code | (errFlag ? 0x10 : 0) | 0; // bit4 error ind
+  const sta = ST[cur].code | (errFlag ? 0x10 : 0);
+  document.getElementById('al-control-hex').textContent = hex0x(ctl, 4);
+  document.getElementById('al-status-hex').textContent = hex0x(sta, 4);
+  document.getElementById('al-control').innerHTML = bits(ctl, 0, 'state');
+  document.getElementById('al-status').innerHTML = bits(sta, 1, 'state');
+  document.getElementById('al-code').textContent = hex0x(alCode, 4);
+  document.getElementById('al-code').style.color = alCode ? '#fda4af' : '#7dd3fc';
+}
+
+function bits(v, kind, _) {
+  // bit0-3 state, bit4 error, bit5 id, bit6 ack, bit7..15 reserved
+  let h = '';
+  const names = ['State0', 'State1', 'State2', 'State3', 'Err', 'ID', 'Ack', '—', '—', '—', '—'];
+  for (let i = 0; i < 11; i++) {
+    const on = (v >> i) & 1;
+    const hi = i < 4;
+    h += `<div class="b ${on ? (hi ? 'hi' : 'on') : ''}" data-tip="bit${i} · ${names[i]}">${on}</div>`;
+  }
+  return h;
+}
+
+function renderTrans() {
+  const tos = Object.keys(TRANS[cur] || {});
+  const host = document.getElementById('trans-btns');
+  host.innerHTML = tos.map(t => `<button class="btn sm" data-t="${t}">→ ${t}</button>`).join('');
+  host.querySelectorAll('button').forEach(b => b.addEventListener('click', () => go(b.dataset.t)));
+  document.getElementById('trans-note').textContent = tos.length
+    ? `可迁移到：${tos.join(' / ')}` : '该状态没有可主动请求的迁移。';
+}
+
+function go(target) {
+  const rule = (TRANS[cur] || {})[target];
+  const logBox = document.getElementById('esm-log');
+  const add = (msg, cls) => {
+    const d = document.createElement('div');
+    if (cls) d.className = cls;
+    d.textContent = msg;
+    logBox.appendChild(d);
+    logBox.scrollTop = logBox.scrollHeight;
+  };
+
+  if (!rule) {
+    add(`✗ ${cur} → ${target} 非法迁移（Table 103 不允许）`, 'bad');
+    alCode = 0x0012; errFlag = 1;
+    renderRegs();
+    return;
+  }
+  if (errFlag && target !== 'INIT') {
+    add(`! 当前有错误（AL Status Code 0x${hex(alCode, 4)}），必须先回 INIT 或写 Ack 清错`, 'bad');
+    return;
+  }
+  add(`→ 写 AL Control = ${hex0x(ST[target].code, 4)}（请求 ${target}）`, 'hi');
+  cur = target;
+  alCode = rule.code;
+  errFlag = rule.code ? 1 : 0;
+  add(`← AL Status = ${hex0x((ST[target].code) | (errFlag ? 0x10 : 0), 4)}  ${target} ${errFlag ? '⚠ Error' : '✓'}`, errFlag ? 'bad' : 'ok');
+  if (target === 'SAFEOP') add('   输入有效，输出仍为安全值；此时应完成 DC 同步。', '');
+  if (target === 'OP') add('   输入输出全部有效，进入正常生产。', 'ok');
+  if (target === 'BOOT') add('   仅用于 FoE 固件下载，过程数据不可用。', '');
+  selectState(cur);
+}
+
+/* 预设场景 */
+document.getElementById('sc-start').addEventListener('click', () => {
+  document.getElementById('esm-log').innerHTML = '';
+  errFlag = 0; alCode = 0; cur = 'INIT';
+  const path = ['PREOP', 'SAFEOP', 'OP'];
+  path.forEach((t, i) => setTimeout(() => go(t), i * 420));
+});
+document.getElementById('sc-err').addEventListener('click', () => {
+  document.getElementById('esm-log').innerHTML = '';
+  errFlag = 0; alCode = 0; cur = 'INIT';
+  const logBox = document.getElementById('esm-log');
+  const add = (msg, cls) => {
+    const d = document.createElement('div'); if (cls) d.className = cls;
+    d.textContent = msg; logBox.appendChild(d); logBox.scrollTop = logBox.scrollHeight;
+  };
+  add('→ 写 AL Control = 0x0002（请求 PREOP）', 'hi');
+  cur = 'PREOP'; errFlag = 0;
+  add('← AL Status = 0x0002 PREOP ✓', 'ok');
+  selectState('PREOP');
+  setTimeout(() => {
+    add('→ 写 SM2 配置（过程数据缓冲区）', 'hi');
+    add('! 写入的 SM 长度与 ESI 不一致 → 从站置 SM_Chg 并报错', 'bad');
+    errFlag = 1; alCode = 0x0016;
+    cur = 'INIT';
+    add('← AL Status = 0x0011（INIT + Error），AL Status Code = 0x0016 SM 配置不匹配', 'bad');
+    add('  主站应回到 INIT、比对 ESI 与在线 SII 的 SM 定义后重试', '');
+    selectState('INIT');
+  }, 700);
+});
+document.getElementById('sc-reset').addEventListener('click', () => {
+  cur = 'INIT'; errFlag = 0; alCode = 0;
+  document.getElementById('esm-log').innerHTML = '';
+  selectState('INIT');
+});
+
+selectState('INIT');
+
+/* ================= 邮箱 ================= */
+const mbTabs = document.getElementById('mb-tabs');
+const mbBody = document.getElementById('mb-body');
+
+function byteRow(bytes, cls, names) {
+  return `<div class="mail">${bytes.map((b, i) => `
+    <div class="byte ${cls[i] || cls[0] || 'm-data'}">
+      <span class="n">${(names && names[i]) || ''}</span>
+      <span class="v">${hex(b)}</span>
+    </div>`).join('')}</div>`;
+}
+
+function fieldTable(rows) {
+  return `<table class="tbl">${rows.map(([k, v, d]) =>
+    `<tr><td class="mono" style="white-space:nowrap">${k}</td><td class="mono">${v}</td><td class="small muted">${d}</td></tr>`).join('')}</table>`;
+}
+
+const MB_CONTENT = {
+  head: () => `
+    <div class="grid g2">
+      <div>
+        <h3 style="margin-top:0">6 字节邮箱头</h3>
+        ${fieldTable([
+          ['Length', '16 bit', '邮箱服务数据长度（不含本字段）'],
+          ['Address', '16 bit', '源或目的站地址（取决于方向）'],
+          ['Channel', '6 bit', '保留，0x00'],
+          ['Priority', '2 bit', '0 最低 … 3 最高'],
+          ['Type', '4 bit', '0x03 CoE · 0x01 AoE · 0x02 EoE · 0x04 FoE · 0x05 SoE'],
+          ['Cnt', '3 bit', '服务计数 1..7，循环'],
+          ['Reserved', '1 bit', '0x00'],
+        ])}
+        <p class="small"><span class="src">ETG.1000.6 Table 29</span></p>
+      </div>
+      <div>
+        <h3 style="margin-top:0">CoE 头（2 字节）</h3>
+        ${fieldTable([
+          ['Number', '9 bit', '服务相关编号'],
+          ['Reserved', '3 bit', '0x00'],
+          ['Service', '4 bit', '0x01 Emergency · 0x02 SDO Req · 0x03 SDO Rsp · 0x04 TxPDO · 0x05 RxPDO · 0x08 SDO Info'],
+        ])}
+        <div class="hr"></div>
+        <div class="small muted">邮箱 Type 决定把 payload 交给哪个协议处理器；CoE 处理器再看 Service 决定 SDO / PDO / Emergency。</div>
+      </div>
+    </div>`,
+  exp: () => {
+    // SDO Upload Expedited Request: mbx(6) + coe(2) + sdo(4)
+    const mbx = [0x0A, 0x00, 0xE8, 0x03, 0x03, 0x00];
+    const coe = [0x00, 0x02];
+    const sdo = [0x40, 0x18, 0x10, 0x01];  // init upload, index 0x1018, sub 1
+    const rsp = [0x0A, 0x00, 0x01, 0x00, 0x07, 0x00];
+    const rcoe = [0x00, 0x03];
+    const rsdo = [0x4B, 0x18, 0x10, 0x01, 0x02, 0x00, 0x00, 0x00];
+    return `
+      <p class="small muted">读对象 0x1018:01（Vendor ID，32 位）。请求 4 字节 SDO 头，响应把 4 字节数据直接放在头里——这就是“expedited”。</p>
+      <div class="flow">
+        <div>
+          <div class="small" style="color:#7dd3fc">主站 → 从站（Request）</div>
+          ${byteRow([...mbx, ...coe, ...sdo], ['m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-coe','m-coe','m-sdo','m-sdo','m-sdo','m-sdo'],
+            ['Len','Len','Addr','Addr','Type','Cnt','N','Svc','CC','Idx','Idx','Sub'])}
+        </div>
+        <div class="arrow">⇄</div>
+        <div>
+          <div class="small" style="color:#a78bfa">从站 → 主站（Response）</div>
+          ${byteRow([...rsp, ...rcoe, ...rsdo], ['m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-coe','m-coe','m-sdo','m-sdo','m-sdo','m-sdo','m-data','m-data','m-data','m-data'],
+            ['Len','Len','Addr','Addr','Type','Cnt','N','Svc','CC','Idx','Idx','Sub','V0','V1','V2','V3'])}
+        </div>
+      </div>
+      <div class="hr"></div>
+      <div class="grid g2">
+        <div>
+          <div class="small faint">请求 SDO 头解析</div>
+          <pre class="code"><span class="k">0x40</span> = Initiate Upload Request
+  bit7..5 Command = 010
+  index = 0x1018, sub = 0x01
+  → 请把该对象的值发给我</pre>
+        </div>
+        <div>
+          <div class="small faint">响应 SDO 头解析</div>
+          <pre class="code"><span class="k">0x4B</span> = Initiate Upload Response
+  bit7..5 Command = 010
+  bit1    Expedited = 1
+  bit0    Size = 1 → 数据 4 字节
+  数据 02 00 00 00 = Vendor ID 2</pre>
+        </div>
+      </div>`;
+  },
+  seg: () => {
+    const req1 = [0x0A,0x00,0xE8,0x03,0x03,0x00, 0x00,0x02, 0x40,0x00,0x10,0x00];
+    const rsp1 = [0x0A,0x00,0x01,0x00,0x07,0x00, 0x00,0x03, 0x41,0x0B,0x00,0x00, 0x48,0x65,0x6C,0x6C,0x6F];
+    const req2 = [0x0A,0x00,0xE8,0x03,0x03,0x00, 0x00,0x02, 0x60,0x00,0x00,0x00];
+    const rsp2 = [0x0A,0x00,0x01,0x00,0x07,0x00, 0x00,0x03, 0x01,0x14,0x00,0x00, 0x20,0x57,0x6F,0x72,0x6C,0x64];
+    return `
+      <p class="small muted">对象太长（如字符串 0x1008 Device Name），先用 Initiate Upload 拿到总长度，再用 Segment Upload 一段段取；Toggle 位在 0/1 之间交替，用来发现丢包。</p>
+      <div class="flow">
+        <div>
+          <div class="small" style="color:#7dd3fc">1 · Initiate Upload Request</div>
+          ${byteRow(req1, ['m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-coe','m-coe','m-sdo','m-sdo','m-sdo','m-sdo'],
+            ['Len','Len','Addr','Addr','Type','Cnt','N','Svc','0x40','Idx','Idx','Sub'])}
+          <div class="small faint" style="margin-top:6px">0x40：发起上传；index/subindex 指明对象</div>
+        </div>
+        <div class="arrow">⇄</div>
+        <div>
+          <div class="small" style="color:#a78bfa">1 · Initiate Upload Response</div>
+          ${byteRow(rsp1, ['m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-coe','m-coe','m-sdo','m-sdo','m-sdo','m-sdo','m-data','m-data','m-data','m-data','m-data'],
+            ['Len','Len','Addr','Addr','Type','Cnt','N','Svc','0x41','Len0','Len1','—','H','e','l','l','o'])}
+          <div class="small faint" style="margin-top:6px">0x41：响应，bit0=1 表示还有分段；0x000B = 11 字节总长</div>
+        </div>
+      </div>
+      <div class="flow" style="margin-top:14px">
+        <div>
+          <div class="small" style="color:#7dd3fc">2 · Upload Segment Request（Toggle=0）</div>
+          ${byteRow(req2, ['m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-coe','m-coe','m-sdo','m-sdo','m-sdo','m-sdo'],
+            ['Len','Len','Addr','Addr','Type','Cnt','N','Svc','0x60','Toggle','—','—'])}
+        </div>
+        <div class="arrow">⇄</div>
+        <div>
+          <div class="small" style="color:#a78bfa">2 · Upload Segment Response（Toggle=0）</div>
+          ${byteRow(rsp2, ['m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-coe','m-coe','m-sdo','m-sdo','m-sdo','m-sdo','m-data','m-data','m-data','m-data','m-data','m-data'],
+            ['Len','Len','Addr','Addr','Type','Cnt','N','Svc','0x01','Toggle','Len','—',' ','W','o','r','l','d'])}
+          <div class="small faint" style="margin-top:6px">bit0=1 表示最后一段；Toggle 回显请求值</div>
+        </div>
+      </div>
+      <p class="small"><span class="src">ETG.1000.6 §5.6.2.5–5.6.2.6（Upload Segment Request/Response）；Toggle 用于顺序校验</span></p>`;
+  },
+  ca: () => `
+    <p class="small muted">Complete Access 让一次 SDO 读写整个对象（含所有子索引），避免逐个子索引往返。请求头把 CompleteAccess 位置 1，并给出子索引 0 或 1 作为起点。</p>
+    <div class="grid g2">
+      <div>
+        <h3 style="margin-top:0">常规方式</h3>
+        <pre class="code">0x1018:00 → 读子索引数
+0x1018:01 → Vendor ID
+0x1018:02 → Product Code
+0x1018:03 → Revision
+0x1018:04 → Serial
+<span class="c">共 5 次邮箱往返</span></pre>
+      </div>
+      <div>
+        <h3 style="margin-top:0">Complete Access</h3>
+        <pre class="code">0x1018:00 with CA=1
+→ 一次返回 01..04 的连续数据
+<span class="c">1 次往返；但要求从站支持且
+   对象无空洞、字节对齐一致</span></pre>
+      </div>
+    </div>
+    <div class="note" style="margin-top:12px">
+      <b>注意</b>：CA 读写的字节顺序必须严格按子索引顺序 + 数据类型对齐，且从站要在 ESI 里声明
+      <code class="mono">CompleteAccess</code> 支持。主站实现里这是最常见的兼容性坑之一。
+      <span class="src">ETG.1500 §5.7.3 · ETG.1000.6 §5.6.2</span>
+    </div>`,
+  em: () => {
+    const em = [0x0A,0x00,0xE8,0x03,0x03,0x00, 0x00,0x01, 0x10,0x00, 0x00,0x00, 0x01,0x00, 0x21,0x00, 0x00,0x00,0x00,0x00];
+    return `
+      <p class="small muted">从站检测到错误（如输出短路、看门狗、DC 失步）时会主动发 Emergency，主站应把它记进诊断日志并关联到从站。</p>
+      <div class="small" style="color:#a78bfa">从站 → 主站（Emergency）</div>
+      ${byteRow(em, ['m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-mbx','m-coe','m-coe','m-data','m-data','m-data','m-data','m-data','m-data','m-data','m-data','m-data','m-data','m-data','m-data'],
+        ['Len','Len','Addr','Addr','Type','Cnt','N','Svc=1','ErrCode','ErrCode','ErrReg','ErrReg','Data0','Data0','Data1','Data1','Data2','Data2','Data3','Data3'])}
+      <div class="grid g2" style="margin-top:12px">
+        <div>${fieldTable([
+          ['Emergency Code', '16 bit', '错误类别（如 0x2310 过流）'],
+          ['Error Register', '8 bit', 'CoE 错误寄存器镜像'],
+          ['Data', '5 B', '厂商自定义上下文'],
+        ])}</div>
+        <div class="small muted">Emergency 是“从站主动说话”的唯一常规通道；它不走过程数据，所以不影响周期实时性。</div>
+      </div>
+      <p class="small"><span class="src">ETG.1000.6 §5.6.3 Emergency</span></p>`;
+  },
+};
+
+mbTabs.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  mbTabs.querySelectorAll('button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  mbBody.innerHTML = MB_CONTENT[b.dataset.t]();
+});
+mbBody.innerHTML = MB_CONTENT.head();
+
+/* ================= AL Status Codes ================= */
+const CODES = [
+  [0x0000, 'No error', '无错误'],
+  [0x0011, 'Invalid requested state change', '请求了非法状态迁移（如 PREOP→OP）'],
+  [0x0012, 'Unknown requested state', 'AL Control 里的状态值非法'],
+  [0x0013, 'Bootstrap only', '不支持 BOOT 状态'],
+  [0x0016, 'SM 配置不匹配（Mailbox）', 'SM0/SM1 设置与 ESI 不一致'],
+  [0x0017, 'SM 配置不匹配（过程数据）', 'SM2/SM3 设置与 ESI 不一致'],
+  [0x001D, '输出配置错误', '输出 PDO 长度/映射非法'],
+  [0x001E, '输入配置错误', '输入 PDO 长度/映射非法'],
+  [0x001F, '看门狗触发', '过程数据超时（SM 看门狗）'],
+  [0x0020, '从站需要冷启动', '需重新上电'],
+  [0x0024, '无有效输入数据', '主站还没写输入'],
+  [0x0025, '无有效输出数据', '从站还没收到输出'],
+  [0x0026, '同步错误', 'SYNC0/1 周期与配置不符'],
+  [0x0029, 'DC 同步错误', 'DC 失步超过阈值'],
+  [0x0030, '无效的 DC 配置', 'DC 参数非法'],
+  [0x0031, '无效的 DC 锁存配置', '锁存参数非法'],
+  [0x0032, 'PDI 看门狗', '过程数据接口超时'],
+  [0x0033, 'SM 看门狗（邮箱）', '邮箱超时'],
+  [0x0035, '无效的输入配置', '—'],
+  [0x0036, '无效的输出配置', '—'],
+];
+document.getElementById('code-tbl').innerHTML = `
+  <thead><tr><th>Code</th><th>含义</th><th>现场解释</th></tr></thead>
+  <tbody>${CODES.map(([c, n, d]) => `<tr>
+    <td class="mono" style="color:#7dd3fc">${hex0x(c, 4)}</td>
+    <td>${n}</td><td class="small muted">${d}</td>
+  </tr>`).join('')}</tbody>`;
+</script>
+
+<div class="selfcheck sc-idle" id="selfcheck" data-state="idle" role="status" aria-live="polite" tabindex="0"
+     title="脚本未执行：若通过 file:// 打开，请确认 assets/js/ec-core.js 存在；否则按 F12 查看控制台">
+  <span class="sc-dot"></span><span class="sc-text">脚本未执行</span>
+</div>
+
+</body>
+</html>

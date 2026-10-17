@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EtherCAT 可视化学习站</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1c26'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='none' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='11' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3EEC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<div class="shell">
+  <div class="side" id="side-slot"></div>
+  <div class="main">
+    <div class="topbar" id="top-slot"></div>
+    <div class="wrap">
+
+      <section class="hero">
+        <div class="eyebrow">ETG.1000 · ETG.1020 · ETG.1500 · ETG.2000 · ETG.2200</div>
+        <h1>把 EtherCAT 协议栈<br>拆成可以点的一帧</h1>
+        <p>
+          从 100BASE-TX 的比特，到 10 字节 Datagram Header，再到 CoE 邮箱与
+          ESM 状态机；从主站的周期任务，到从站 ESC 内部的 FMMU / SyncManager / DC。
+          每个图元都标注了它来自哪本 ETG 规范的哪一节。
+        </p>
+        <div class="kpis">
+          <div class="kpi"><b>0x88A4</b><span>ETHERCAT ETHERTYPE</span></div>
+          <div class="kpi"><b>15</b><span>命令码</span></div>
+          <div class="kpi"><b>10 B</b><span>DATAGRAM HEADER</span></div>
+          <div class="kpi"><b>4</b><span>ESM 主状态 + BOOT</span></div>
+          <div class="kpi"><b>17</b><span>本地规范文档</span></div>
+        </div>
+        <div class="toolbar" style="margin-bottom:0">
+          <a class="btn primary" href="frame.html">从一帧开始 →</a>
+          <a class="btn" href="guide.html">通读学习手册</a>
+          <a class="btn ghost" href="spec.html">看规范索引</a>
+        </div>
+      </section>
+
+      <div class="grid g3">
+        <a class="card cardlink" href="frame.html">
+          <div class="ico">▦</div>
+          <h3>01 · 帧解剖</h3>
+          <p class="small muted">逐字节、逐位拆开一帧：Ethernet 头、EtherCAT 帧头、Datagram Header 的 8 个字段、多个 PDU 串联，以及 WKC 怎么算出来。</p>
+          <span class="go">进入 →</span>
+        </a>
+        <a class="card cardlink" href="network.html">
+          <div class="ico">⇄</div>
+          <h3>02 · 网络实验室</h3>
+          <p class="small muted">发一帧下去，看它依次穿过 5 个从站的端口；每个从站怎么按 APRD / FPRD / BRD / LRW 决定“我该不该动手”，以及时延预算。</p>
+          <span class="go">进入 →</span>
+        </a>
+        <a class="card cardlink" href="master.html">
+          <div class="ico">◆</div>
+          <h3>03 · 主站视角</h3>
+          <p class="small muted">Class A / Class B 的 27 项能力矩阵、启动时序、周期任务的分层结构、以及主站诊断对象 0x8nnn / 0x9nnn / 0xAnnn。</p>
+          <span class="go">进入 →</span>
+        </a>
+        <a class="card cardlink" href="al.html">
+          <div class="ico">◎</div>
+          <h3>04 · 从站与状态机</h3>
+          <p class="small muted">INIT→PREOP→SAFEOP→OP 的每一步在使能什么；AL Control/Status 寄存器、邮箱头 + CoE 头、SDO 分段传输的报文流。</p>
+          <span class="go">进入 →</span>
+        </a>
+        <a class="card cardlink" href="eoe-foe-soe.html">
+          <div class="ico">✉</div>
+          <h3>05 · EoE / FoE / SoE</h3>
+          <p class="small muted">三种非 CoE 邮箱协议的逐字节拆解：EoE 的 4 字节头与 32 字节分片、FoE 的六个 OpCode 与固件下载时序、SoE 的 IDN 模型。</p>
+          <span class="go">进入 →</span>
+        </a>
+        <a class="card cardlink" href="slave.html">
+          <div class="ico">▤</div>
+          <h3>06 · ESI / SII</h3>
+          <p class="small muted">从站的两份“身份证”：XML 描述文件（ESI，ETG.2000）与 EEPROM 里的 SII（ETG.2010）。把本地真实 ESI 示例渲染成可点的树。</p>
+          <span class="go">进入 →</span>
+        </a>
+        <a class="card cardlink" href="dc.html">
+          <div class="ico">◷</div>
+          <h3>07 · 分布式时钟</h3>
+          <p class="small muted">参考时钟、传播延时、偏移与漂移补偿；为什么 100 个从站能同步到 < 1 µs，以及 SYNC0 抖动从哪来。</p>
+          <span class="go">进入 →</span>
+        </a>
+        <a class="card cardlink" href="guide.html">
+          <div class="ico">▥</div>
+          <h3>08 · 学习手册</h3>
+          <p class="small muted">约两万字的通读版：心智模型、三层协议栈、周期路径、状态机、邮箱、DC、主站/从站、常见误解与速查表。</p>
+          <span class="go">进入 →</span>
+        </a>
+      </div>
+
+      <h2 id="layers">三层协议栈：点一层，看它对应哪本规范</h2>
+      <p class="lede">EtherCAT 只用了 OSI 的三层。下面这张图是整站的“目录”：每一层都能对应到 ETG.1000 的一个分册（外加 ETG.1020 的增强）。</p>
+
+      <div class="grid g23" style="margin-top:14px">
+        <div>
+          <div class="stack" id="stack"></div>
+          <div class="legend" style="margin-top:14px">
+            <span><i style="background:#38bdf8"></i>DLL 数据链路</span>
+            <span><i style="background:#a78bfa"></i>AL 应用层</span>
+            <span><i style="background:#34d399"></i>PHY 物理层</span>
+          </div>
+        </div>
+        <div class="card" id="layer-detail">
+          <div class="faint small">← 点击左侧任一层</div>
+        </div>
+      </div>
+
+      <h2>建议的学习顺序</h2>
+      <div class="grid g2">
+        <div class="card">
+          <h3>① 先建立“帧”的直觉 <span class="badge m">DLL</span></h3>
+          <p class="small muted">EtherCAT 的一切都发生在一帧里。先把 <b>帧解剖</b> 走一遍，知道 ADP/ADO/LEN/WKC 各在哪、命令码怎么选；再进 <b>网络实验室</b> 看它怎么被从站“接力”处理。</p>
+          <p class="small"><span class="src">ETG.1000.4 §5.3–5.4</span></p>
+        </div>
+        <div class="card">
+          <h3>② 再理解“状态” <span class="badge s">AL</span></h3>
+          <p class="small muted">为什么上电后不能立刻交换过程数据？把 ESM 的五态与邮箱握手走一遍，就明白 SDO 配置与 PDO 交换的先后关系。</p>
+          <p class="small"><span class="src">ETG.1000.6 §5.3 / Table 103</span></p>
+        </div>
+        <div class="card">
+          <h3>③ 然后看“设备” <span class="badge s">SubDevice</span></h3>
+          <p class="small muted">ESI 是设计期契约，SII 是运行期事实。两者字段能对上，主站才能正确地把 PDO 拼进过程映像。</p>
+          <p class="small"><span class="src">ETG.2000 / ETG.2010</span></p>
+        </div>
+        <div class="card">
+          <h3>④ 最后抠“时间” <span class="badge w">DC</span></h3>
+          <p class="small muted">运动控制真正难的是同步。DC 的测量—偏移—漂移三步，配合 SYNC0 才构成确定性节拍。</p>
+          <p class="small"><span class="src">ETG.1000.4 §6.8 / ETG.1020</span></p>
+        </div>
+      </div>
+
+      <h2>本地资料清单</h2>
+      <p class="lede">这些文件已在 <code class="mono">etg_doc/</code> 下，页面上所有数字都能回查到原文。访问级别按 ETG 下载页标注。</p>
+      <div class="scroll" style="margin-top:12px">
+        <table class="tbl" id="spec-table"></table>
+      </div>
+
+      <footer class="end">
+        <span>EtherCAT 可视化学习站 · 本地离线版</span>
+        <span>规范文本版权归 EtherCAT Technology Group 所有；本站仅做学习索引，不复制原文。</span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/ec-core.js"></script>
+<script>
+const { LAYERS, SPECS } = EC_DATA;
+const { renderShell, hex0x } = EC_UI;
+
+/* 手工渲染 shell（首页顶栏文案不同） */
+renderShell({
+  active: 'index',
+  crumbs: ['EtherCAT 可视化学习站', '总览'],
+  title: `${SPECS.length} 份本地规范`,
+  docCount: SPECS.length,
+});
+
+/* ---- 分层堆叠 ---- */
+const stack = document.getElementById('stack');
+const detail = document.getElementById('layer-detail');
+
+// 从 AL 到 PHY 自上而下
+const order = ['al', 'dll', 'phy'];
+const colorOf = { al: '#a78bfa', dll: '#38bdf8', phy: '#34d399' };
+
+stack.innerHTML = order.map(k => {
+  const L = LAYERS.find(x => x.key === k);
+  return `<div class="layer" data-k="${k}">
+    <div class="lv"><b>L${L.osi}</b>${L.short}</div>
+    <div>
+      <div class="nm">${L.name}</div>
+      <div class="ds">${L.desc}</div>
+    </div>
+    <div class="sp">${L.specs.map(s => `<span class="badge">${s}</span>`).join('')}</div>
+  </div>`;
+}).join('');
+
+function showLayer(k) {
+  const L = LAYERS.find(x => x.key === k);
+  if (!L) return;
+  document.querySelectorAll('.layer').forEach(n => n.classList.toggle('on', n.dataset.k === k));
+  const specs = L.specs.map(id => SPECS.find(s => s.id === id)).filter(Boolean);
+  detail.innerHTML = `
+    <div class="eyebrow" style="color:${L.color}">L${L.osi} · ${L.short}</div>
+    <h3 style="margin-top:6px">${L.name}</h3>
+    <p class="small muted">${L.desc}</p>
+    <div class="hr"></div>
+    <div class="small" style="font-size:12px;color:var(--text-faint);letter-spacing:.08em;margin-bottom:6px">这一层管什么</div>
+    <ul class="small" style="margin:0;padding-left:18px;color:#c9dcec">
+      ${L.items.map(i => `<li style="margin:3px 0">${i}</li>`).join('')}
+    </ul>
+    <div class="hr"></div>
+    <div class="small" style="font-size:12px;color:var(--text-faint);letter-spacing:.08em;margin-bottom:8px">对应规范</div>
+    ${specs.map(s => `
+      <div style="margin-bottom:10px">
+        <div><b>${s.id}</b> <span class="faint small">${s.ver}</span>
+          ${s.access === 'free' ? '<span class="badge free">免费</span>' : '<span class="badge w">会员</span>'}</div>
+        <div class="small muted">${s.title}</div>
+        <div class="small" style="color:#9fb6c9;margin-top:3px">${s.why}</div>
+      </div>`).join('')}
+    <div class="small"><span class="src">章节：${specs.map(s => s.chapters[0]).join(' ; ')}</span></div>
+  `;
+}
+document.querySelectorAll('.layer').forEach(n => n.addEventListener('click', () => showLayer(n.dataset.k)));
+showLayer('dll');
+
+/* ---- 资料表 ---- */
+const accessBadge = a => a === 'free'
+  ? '<span class="badge free">免费</span>'
+  : '<span class="badge w">会员</span>';
+
+document.getElementById('spec-table').innerHTML = `
+  <thead><tr>
+    <th>编号</th><th>标题</th><th>版本</th><th>页数</th><th>访问</th><th>本地文件</th>
+  </tr></thead>
+  <tbody>
+  ${SPECS.map(s => `<tr>
+    <td class="mono" style="color:#7dd3fc;white-space:nowrap">${s.id}</td>
+    <td>${s.title}<div class="faint small">${s.cn}</div></td>
+    <td class="mono small">${s.ver}</td>
+    <td class="num">${s.pages}</td>
+    <td>${accessBadge(s.access)}</td>
+    <td class="mono small faint" style="word-break:break-all">${s.file}</td>
+  </tr>`).join('')}
+  </tbody>`;
+</script>
+
+<div class="selfcheck sc-idle" id="selfcheck" data-state="idle" role="status" aria-live="polite" tabindex="0"
+     title="脚本未执行：若通过 file:// 打开，请确认 assets/js/ec-core.js 存在；否则按 F12 查看控制台">
+  <span class="sc-dot"></span><span class="sc-text">脚本未执行</span>
+</div>
+
+</body>
+</html>

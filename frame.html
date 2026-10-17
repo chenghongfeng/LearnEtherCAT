@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>帧解剖 · EtherCAT 可视化</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1c26'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='none' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='11' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3EEC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+<style>
+  .field-chip{
+    display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);
+    background:#0a121a;border-radius:8px;padding:4px 8px;font-family:var(--mono);font-size:11px;
+    color:var(--text-dim);cursor:pointer;
+  }
+  .field-chip:hover{border-color:#2b6f97;color:var(--text)}
+  .field-chip.on{background:#122536;border-color:#2b6f97;color:#dff4ff}
+  .ins{font-family:var(--mono);font-size:12.5px}
+  .ins .big{font-size:20px;color:#9fe0ff;font-family:var(--mono)}
+  .ins .lbl{color:var(--text-faint);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase}
+  .wkc{display:flex;gap:6px;align-items:center;font-family:var(--mono);font-size:12px}
+  .wkc .tick{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;border:1px solid var(--line);background:#0a121a;color:var(--text-faint);font-size:10px}
+  .wkc .tick.hit{border-color:#2f6f45;background:#0e2016;color:#86efac}
+  .wkc .tick.miss{border-color:#5a2a2a;background:#1b0f0f;color:#6b7280}
+  .slider{width:100%}
+  .ug{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:8px 0}
+  .ug label{font-size:12.5px;color:var(--text-dim)}
+  .ug output{font-family:var(--mono);font-size:12px;color:#9fe0ff;min-width:70px;text-align:right}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="side" id="side-slot"></div>
+  <div class="main">
+    <div class="topbar" id="top-slot"></div>
+    <div class="wrap">
+
+      <div class="page-head">
+        <div class="eyebrow">ETG.1000.4 · §5.3 Frame structure / §5.4 DLPDU</div>
+        <h1>一帧 EtherCAT 的解剖 <small>从 EtherType 到工作计数器</small></h1>
+        <p class="lede">
+          主站发出的每一个周期，本质上是<b>一个以太网帧里装着若干个 EtherCAT PDU</b>（datagram）。
+          每个 PDU 自带 10 字节头、数据区和 2 字节工作计数器；从站在转发的同时“顺手”读写自己那段内存。
+          下面所有格子都可以点。
+        </p>
+      </div>
+
+      <div class="toolbar">
+        <div class="seg" id="mode">
+          <button data-m="rw" class="on">LRW 周期过程数据</button>
+          <button data-m="aprd">APRD 上电枚举</button>
+          <button data-m="fprd">FPRD 定向读寄存器</button>
+          <button data-m="multi">多 PDU 串联</button>
+        </div>
+        <div class="spacer"></div>
+        <span class="pill">悬停看字段 · 点击锁定</span>
+      </div>
+
+      <!-- ============ 1. 整帧 ============ -->
+      <h2 id="f1">1 · 整帧布局</h2>
+      <p class="lede">
+        一个标准以太网帧（可带 802.1Q VLAN 标签），EtherType 固定 <code class="mono">0x88A4</code>；
+        紧跟 2 字节 EtherCAT 帧头，然后是 1..n 个 PDU，最后是 4 字节以太网 FCS。
+        少于 64 字节要填 padding。
+        <span class="src">ETG.1000.4 Table 9 / Table 11</span>
+      </p>
+      <div class="frame-strip"><div class="strip" id="strip"></div></div>
+      <div class="legend">
+        <span><i style="background:#4c1d95"></i>以太网头</span>
+        <span><i style="background:#075985"></i>EtherCAT 帧头</span>
+        <span><i style="background:#065f46"></i>PDU 头（10 B）</span>
+        <span><i style="background:#78350f"></i>数据区</span>
+        <span><i style="background:#7f1d1d"></i>WKC</span>
+        <span><i style="background:#1a2530"></i>Padding / FCS</span>
+      </div>
+
+      <div class="grid g23" style="margin-top:8px">
+        <div class="card">
+          <h3 style="margin-top:0">当前构造</h3>
+          <div class="ins" id="summary"></div>
+          <div class="hr"></div>
+          <div class="lbl" style="color:var(--text-faint);font-size:10.5px;letter-spacing:.1em">字节统计</div>
+          <div id="bytecounts" class="small" style="margin-top:6px"></div>
+        </div>
+        <div class="card" id="inspector">
+          <div class="faint small">把一个格子悬停或点击，这里显示它在规范里的定义。</div>
+        </div>
+      </div>
+
+      <!-- ============ 2. 帧头 ============ -->
+      <h2 id="f2">2 · EtherCAT 帧头：11 位长度 + 4 位类型</h2>
+      <p class="lede">
+        2 个字节，小端序。11 位 <b>Length</b> 表示其后 EtherCAT 内容的长度（不含这 2 字节本身），5 位保留+类型。
+        类型 <code class="mono">0x1</code> = EtherCAT PDU，<code class="mono">0x4</code> = 网络变量，<code class="mono">0x5</code> = 邮箱。
+        <span class="src">ETG.1000.4 Table 11–13</span>
+      </p>
+      <div class="frame-strip"><div class="strip" id="fchdr" style="gap:10px"></div></div>
+      <div class="small muted" id="fchdr-note"></div>
+
+      <!-- ============ 3. Datagram Header ============ -->
+      <h2 id="f3">3 · Datagram Header：8 个字段，10 个字节</h2>
+      <p class="lede">
+        这是全站最该背下来的一张表。<b>CMD</b> 决定服务类型，<b>ADP/ADO</b>（或 <b>ADR</b>）决定地址怎么解释，
+        <b>LEN</b> 只有 11 位，所以单个 PDU 数据区最多 2047 字节。
+        <span class="src">ETG.1000.4 Table 14（APRD）为模板，其余命令字段一致</span>
+      </p>
+
+      <div class="card pad">
+        <div class="toolbar" style="margin-top:0">
+          <div class="seg" id="cmdpick"></div>
+        </div>
+
+        <div class="bitrow" id="bitrow" style="flex-wrap:nowrap;overflow-x:auto;padding-bottom:6px"></div>
+        <div class="legend" style="margin-bottom:0">
+          <span class="faint">点击任意位可翻转，观察右侧数值与 WKC 变化</span>
+        </div>
+
+        <div class="hr"></div>
+        <div class="grid g4" id="hdr-fields"></div>
+      </div>
+
+      <!-- ============ 4. 命令码 ============ -->
+      <h2 id="f4">4 · 15 条命令码</h2>
+      <p class="lede">
+        按“寻址方式 × 读写”两个维度划分。上电阶段用 APRD/APWR（位置寻址），配置阶段用 FPRD/FPWR（节点寻址），
+        运行阶段用 LRD/LWR/LRW（逻辑寻址）；BRD/BWR 用于广播统计，ARMW/FRMW 专供 DC。
+        <span class="src">ETG.1000.4 §5.4</span>
+      </p>
+      <div class="scroll">
+        <table class="tbl" id="cmdtable"></table>
+      </div>
+
+      <!-- ============ 5. WKC ============ -->
+      <h2 id="f5">5 · 工作计数器：主站的“签收单”</h2>
+      <p class="lede">
+        每个 PDU 末尾 2 字节 WKC（Working Counter）。每被一个从站正确处理，就按规则加 1 或加 2。
+        主站比对“期望值”与“返回值”，就能知道有没有从站掉线、地址配错、或数据没被映射。
+      </p>
+      <div class="grid g2">
+        <div class="card">
+          <h3 style="margin-top:0">本帧 5 个从站的处理结果</h3>
+          <div id="wkc-slaves" class="small"></div>
+          <div class="hr"></div>
+          <div class="wkc">
+            <span class="faint">累计 WKC</span>
+            <b id="wkc-total" style="font-size:16px;color:#86efac">0</b>
+            <span class="faint">/ 期望</span>
+            <b id="wkc-exp" style="font-size:16px;color:#9fe0ff">0</b>
+          </div>
+          <p class="small muted" style="margin-bottom:0">
+            实际 ≠ 期望 ⇒ 主站报 WC 错误，并按 AL Status 进一步定位是哪个从站。
+          </p>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">加 1 还是加 2？</h3>
+          <table class="tbl">
+            <tr><td>读命中</td><td class="num">+1</td><td class="small muted">从站提供了数据</td></tr>
+            <tr><td>写命中</td><td class="num">+1</td><td class="small muted">从站接收了数据</td></tr>
+            <tr><td>读写都命中（LRW/FPRW…）</td><td class="num">+2</td><td class="small muted">同一从站两件事都做了</td></tr>
+            <tr><td>未命中 / 从站不在</td><td class="num">+0</td><td class="small muted">地址不匹配或端口断开</td></tr>
+          </table>
+          <p class="small muted">
+            这是“逻辑命中次数”而非“从站个数”：一个从站有 2 个 FMMU 都落在该逻辑地址范围，就会加 2。
+          </p>
+          <p class="small"><span class="src">ETG.1000.4 §5.4.1.1 / §6.6 FMMU</span></p>
+        </div>
+      </div>
+
+      <!-- ============ 6. 构造器 ============ -->
+      <h2 id="f6">6 · 自己搭一个 PDU</h2>
+      <div class="grid g23">
+        <div class="card">
+          <div class="ug"><label>命令</label>
+            <select id="b-cmd" class="btn sm" style="min-width:120px"></select></div>
+          <div class="ug"><label>ADP / 站地址 / 逻辑地址（16 进制）</label>
+            <output id="b-addr-o">0x0000</output></div>
+          <input class="slider" id="b-addr" type="range" min="0" max="65535" value="0">
+          <div class="ug"><label>ADO（物理寄存器地址）</label>
+            <output id="b-ado-o">0x0130</output></div>
+          <input class="slider" id="b-ado" type="range" min="0" max="65535" value="0x0130">
+          <div class="ug"><label>数据长度 LEN（字节）</label>
+            <output id="b-len-o">4</output></div>
+          <input class="slider" id="b-len" type="range" min="1" max="64" value="4">
+          <div class="ug"><label>IRQ</label>
+            <output id="b-irq-o">0x0000</output></div>
+          <input class="slider" id="b-irq" type="range" min="0" max="65535" value="0">
+          <div class="hr"></div>
+          <div class="small muted">改动会实时反映到上面的整帧图与 WKC。</div>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">生成的头 10 字节</h3>
+          <pre class="code" id="bdump"></pre>
+          <div class="hr"></div>
+          <div class="small" id="bexplain"></div>
+        </div>
+      </div>
+
+      <footer class="end">
+        <a href="index.html">← 总览</a>
+        <span>下一站：<a href="network.html">网络实验室 →</a></span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/ec-core.js"></script>
+<script>
+const { CMDS } = EC_DATA;
+const { renderShell, hex, hex0x, bin } = EC_UI;
+
+renderShell({ active: 'frame', crumbs: ['学习站', '数据链路层', '帧解剖'], title: 'ETG.1000.4 §5.3' });
+
+/* ---------------- 数据模型 ---------------- */
+const SLAVES = [
+  { pos: 0, sta: 0x03E8, fmmu: [{ ls: 0x1000, len: 2, ps: 0x1000 }] },
+  { pos: 1, sta: 0x03E9, fmmu: [{ ls: 0x1000, len: 3, ps: 0x1100 }] },
+  { pos: 2, sta: 0x03EA, fmmu: [{ ls: 0x1002, len: 4, ps: 0x1200 }] },
+  { pos: 3, sta: 0x03EB, fmmu: [{ ls: 0x1004, len: 1, ps: 0x1300 }] },
+  { pos: 4, sta: 0x03EC, fmmu: [] },
+];
+const LOGICAL_BASE = 0x1000;
+
+const state = {
+  mode: 'rw',
+  cmd: 0x0C,       // LRW
+  adp: 0x1000,     // 逻辑地址
+  ado: 0x0130,
+  len: 4,
+  irq: 0,
+  vlan: false,
+  selected: null,
+};
+
+function cmdMeta(code) { return CMDS.find(c => c.code === code) || CMDS[0]; }
+
+/** 按命令类型解释地址 */
+function addrKind(code) {
+  if (code <= 0x03 || code === 0x0d) return 'position';   // APRD/APWR/APRW/ARMW
+  if (code >= 0x04 && code <= 0x06) return 'node';        // FPRD/FPWR/FPRW
+  if (code >= 0x07 && code <= 0x09) return 'broadcast';   // BRD/BWR/BRW
+  if (code >= 0x0a && code <= 0x0c) return 'logical';     // LRD/LWR/LRW
+  if (code === 0x0e) return 'node';
+  return 'none';
+}
+function isRead(code) { return [0x01,0x04,0x07,0x0a,0x0d,0x0e].includes(code); }
+function isWrite(code) { return [0x02,0x03,0x05,0x06,0x08,0x09,0x0b,0x0c,0x0d,0x0e].includes(code); }
+
+/** 计算每个从站是否命中 + WKC 贡献 */
+function evaluate() {
+  const kind = addrKind(state.cmd);
+  const rd = isRead(state.cmd), wr = isWrite(state.cmd);
+  return SLAVES.map(s => {
+    let hits = 0;
+    if (kind === 'position') {
+      // ADP 递减计数：起始值 = 目标位置，经过的从站依次递减
+      if (s.pos === state.adp) hits = 1;
+    } else if (kind === 'node') {
+      if (s.sta === state.adp || state.adp === 0) hits = 1;
+    } else if (kind === 'broadcast') {
+      hits = 1;
+    } else if (kind === 'logical') {
+      for (const f of s.fmmu) {
+        const a0 = state.adp, a1 = state.adp + state.len;
+        const b0 = f.ls, b1 = f.ls + f.len;
+        if (a0 < b1 && b0 < a1) hits++;
+      }
+    }
+    const contrib = hits ? (rd && wr ? 2 * hits : hits) : 0;
+    return { ...s, hits, contrib };
+  });
+}
+
+/** 构造 PDU 头字节 */
+function headerBytes() {
+  const kind = addrKind(state.cmd);
+  const b = [];
+  b.push(state.cmd);
+  b.push(0x01);                                   // IDX
+  // ADP / ADR 小端
+  b.push(state.adp & 0xff, (state.adp >> 8) & 0xff);
+  if (kind === 'logical') {                       // 逻辑地址 32 位
+    b.push(0x00, 0x00);
+  } else {
+    b.push(state.ado & 0xff, (state.ado >> 8) & 0xff);
+  }
+  // LEN:11 | res:3 | C:1 | NEXT:1  —— 共 2 字节，小端
+  const w = (state.len & 0x7ff) | (0 << 11) | (0 << 14) | (0 << 15);
+  b.push(w & 0xff, (w >> 8) & 0xff);
+  // IRQ
+  b.push(state.irq & 0xff, (state.irq >> 8) & 0xff);
+  return b;
+}
+
+function pduList() {
+  if (state.mode === 'multi') {
+    return [
+      { cmd: 0x0C, adp: 0x1000, ado: 0, len: 6, irq: 0, data: [0x11,0x22,0x33,0x44,0x55,0x66] },
+      { cmd: 0x04, adp: 0x03E8, ado: 0x0130, len: 2, irq: 0, data: [0x08,0x00] },
+      { cmd: 0x07, adp: 0x0000, ado: 0x0000, len: 2, irq: 0, data: [0x00,0x00] },
+    ];
+  }
+  const n = state.len;
+  const data = Array.from({ length: n }, (_, i) => (i * 37 + 0x5A) & 0xff);
+  return [{ cmd: state.cmd, adp: state.adp, ado: state.ado, len: n, irq: state.irq, data }];
+}
+
+/* ---------------- 渲染整帧 ---------------- */
+const strip = document.getElementById('strip');
+
+function buildCells() {
+  const pdus = pduList();
+  const cells = [];
+
+  // Ethernet
+  cells.push({ f: 'dst',  grp: 'eth',  n: 6, label: 'DST MAC', val: '01:1B:EC:00:00:01', tip: tipOf('dst') });
+  cells.push({ f: 'src',  grp: 'eth',  n: 6, label: 'SRC MAC', val: '02:00:00:00:00:01', tip: tipOf('src') });
+  if (state.vlan) cells.push({ f: 'vlan', grp: 'eth', n: 4, label: 'VLAN', val: '8100 · PCP 0', tip: tipOf('vlan') });
+  cells.push({ f: 'etype', grp: 'eth', n: 2, label: 'ETHERTYPE', val: '0x88A4', tip: tipOf('etype') });
+
+  // EtherCAT frame header
+  const ecLen = pdus.reduce((a, p) => a + 10 + p.len + 2, 0);
+  cells.push({ f: 'eclen', grp: 'ecat', n: 2, label: 'ECAT LEN', val: `${ecLen} B`, tip: tipOf('eclen') });
+
+  // PDUs
+  pdus.forEach((p, pi) => {
+    const kind = addrKind(p.cmd);
+    cells.push({ f: 'cmd', grp: 'pdu', n: 1, label: 'CMD', val: cmdMeta(p.cmd).abbr, tip: tipOf('cmd', p) });
+    cells.push({ f: 'idx', grp: 'pdu', n: 1, label: 'IDX', val: hex(pi + 1, 2), tip: tipOf('idx') });
+    if (kind === 'logical') {
+      cells.push({ f: 'adr', grp: 'pdu', n: 4, label: 'ADR (32b)', val: hex0x(p.adp, 8), tip: tipOf('adr', p) });
+    } else {
+      cells.push({ f: 'adp', grp: 'pdu', n: 2, label: 'ADP', val: hex0x(p.adp, 4), tip: tipOf('adp', p) });
+      cells.push({ f: 'ado', grp: 'pdu', n: 2, label: 'ADO', val: hex0x(p.ado, 4), tip: tipOf('ado', p) });
+    }
+    cells.push({ f: 'len', grp: 'pdu', n: 2, label: 'LEN|C|NEXT', val: `${p.len} · NEXT=${pi < pdus.length - 1 ? 1 : 0}`, tip: tipOf('len', p) });
+    cells.push({ f: 'irq', grp: 'pdu', n: 2, label: 'IRQ', val: hex0x(p.irq, 4), tip: tipOf('irq') });
+    cells.push({ f: 'data', grp: 'data', n: Math.max(p.len, 1), label: 'DATA', val: p.data.slice(0, 4).map(x => hex(x)).join(' ') + (p.len > 4 ? ' …' : ''), tip: tipOf('data', p) });
+    cells.push({ f: 'wkc', grp: 'wkc', n: 2, label: 'WKC', val: '0x0000', tip: tipOf('wkc') });
+  });
+
+  const totalSoFar = 6 + 6 + (state.vlan ? 4 : 0) + 2 + 2 + ecLen;
+  const needPad = Math.max(0, 60 - totalSoFar);
+  if (needPad) cells.push({ f: 'pad', grp: 'pad', n: needPad, label: 'PADDING', val: `${needPad} B`, tip: '帧不足 64 字节时补 0，确保以太网最小帧长。' });
+  cells.push({ f: 'fcs', grp: 'pad', n: 4, label: 'FCS', val: '—', tip: '以太网 CRC32。从站改写数据后会重算 FCS。' });
+  return { cells, pdus, ecLen, totalSoFar, needPad };
+}
+
+function tipOf(field, p) {
+  const M = {
+    dst: '<b>DST MAC</b><div class="r">Table 9 · 6 B</div>通常是以太网广播/多播地址，由主站网卡发出。',
+    src: '<b>SRC MAC</b><div class="r">Table 9 · 6 B</div>主站网卡 MAC。',
+    vlan: '<b>VLAN Tag</b><div class="r">Table 9 · 可选 4 B</div>802.1Q：TPID 0x8100 + TCI。EtherCAT 帧可带 VLAN。',
+    etype: '<b>EtherType</b><div class="r">Table 9 · 2 B · 0x88A4</div>EtherCAT 的 IEEE 分配 EtherType。走 UDP 时则是 0x0800 + UDP 34980。',
+    eclen: '<b>EtherCAT Frame Length</b><div class="r">Table 11 · 11 bit + 1 res + 4 type</div>其后 EtherCAT 内容的字节数（不含这 2 字节），只算 11 位，最大 2047。',
+    cmd: `<b>CMD = ${p ? cmdMeta(p.cmd).abbr : ''}</b><div class="r">Table 14 · 1 B</div>${p ? cmdMeta(p.cmd).desc : ''}`,
+    idx: '<b>IDX</b><div class="r">Table 14 · 1 B</div>主站本地标识，从站不得修改；用于把响应匹配回请求。',
+    adp: '<b>ADP</b><div class="r">Table 14 · 2 B</div>位置寻址：每过一个从站减 1，减到 0 的执行；节点寻址：配置站地址或别名。',
+    ado: '<b>ADO</b><div class="r">Table 14 · 2 B</div>从站内部物理内存/寄存器地址，如 0x0130 = AL Status。',
+    adr: '<b>ADR</b><div class="r">Table 17 · 4 B</div>32 位逻辑地址，由各从站 FMMU 映射到物理地址；一个 PDU 可同时命中多个从站。',
+    len: '<b>LEN : res : C : NEXT</b><div class="r">Table 14 · 2 B</div>LEN 11 位（数据区字节数，≤2047）；C 表示帧已绕环一圈；NEXT=1 表示后面还有 PDU。',
+    irq: '<b>IRQ</b><div class="r">Table 14 · 2 B</div>外部事件掩码后的 AL Event Request，用于从站主动“举手”。',
+    data: '<b>DATA</b><div class="r">Table 14 · LEN B</div>数据区，长度由 LEN 决定。读命令时从站把值填入，未命中的从站保持原值。',
+    wkc: '<b>WKC</b><div class="r">Table 14 · 2 B</div>工作计数器：每个命中从站按读/写加 1，读写都命中加 2。',
+  };
+  return M[field] || field;
+}
+
+function renderStrip(sel) {
+  const { cells, pdus, ecLen, needPad } = buildCells();
+  strip.innerHTML = cells.map((c, i) => {
+    const w = Math.max(28, Math.min(200, c.n * 24 + 8));
+    const cls = c.grp === 'eth' ? 'f-eth' : c.grp === 'ecat' ? 'f-ecat'
+      : c.grp === 'pdu' ? 'f-pdu' : c.grp === 'data' ? 'f-data'
+      : c.grp === 'wkc' ? 'f-wkc' : 'f-pad';
+    return `<div class="cell ${cls} ${sel === c.f ? 'sel' : ''}" data-f="${c.f}" data-i="${i}"
+              style="width:${w}px" data-tip="${esc(c.tip.replace(/"/g, '&quot;'))}">
+      <span class="off">${c.n}B</span>
+      <span class="vl">${c.val}</span>
+      <span class="nm">${c.label}</span>
+    </div>`;
+  }).join('');
+
+  strip.querySelectorAll('.cell').forEach(n => {
+    n.addEventListener('mouseenter', () => inspect(n.dataset.f));
+    n.addEventListener('click', () => { state.selected = n.dataset.f; renderStrip(n.dataset.f); inspect(n.dataset.f); });
+  });
+
+  document.getElementById('summary').innerHTML = `
+    <div class="row" style="margin-bottom:6px"><span class="faint">EtherType</span> <b>0x88A4</b></div>
+    <div class="row" style="margin-bottom:6px"><span class="faint">EtherCAT 内容长度</span> <b>${ecLen} B</b></div>
+    <div class="row" style="margin-bottom:6px"><span class="faint">PDU 数量</span> <b>${pdus.length}</b></div>
+    <div class="row"><span class="faint">帧总长（不含 FCS/pad）</span> <b>${6 + 6 + (state.vlan ? 4 : 0) + 2 + 2 + ecLen} B</b></div>`;
+  document.getElementById('bytecounts').innerHTML = `
+    <div>PDU 头：<b>${pdus.length * 10} B</b>（每个 10 B）</div>
+    <div>数据区：<b>${pdus.reduce((a, p) => a + p.len, 0)} B</b></div>
+    <div>WKC：<b>${pdus.length * 2} B</b></div>
+    <div>Padding：<b>${needPad} B</b>（最小帧 64 B 规则）</div>`;
+}
+
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+
+/* ---------------- 检查器 ---------------- */
+function inspect(f) {
+  const box = document.getElementById('inspector');
+  const { pdus } = buildCells();
+  const p = pdus[0];
+  const ev = evaluate();
+  const hit = ev.reduce((a, s) => a + s.contrib, 0);
+  const kind = addrKind(p.cmd);
+
+  const defs = {
+    dst:   ['DST MAC', '48 bit', 'Ethernet 目的 MAC', 'Table 9'],
+    src:   ['SRC MAC', '48 bit', 'Ethernet 源 MAC', 'Table 9'],
+    vlan:  ['VLAN Tag', '32 bit', '802.1Q TPID 0x8100 + TCI', 'Table 9'],
+    etype: ['EtherType', '16 bit = 0x88A4', 'EtherCAT 协议标识', 'Table 9'],
+    eclen: ['EtherCAT Frame Length', '11 bit', '其后 ECAT 内容长度（不含本 2 B）', 'Table 11'],
+    cmd:   ['CMD', '8 bit', cmdMeta(p.cmd).abbr + ' — ' + cmdMeta(p.cmd).desc, 'Table 14 / §5.4'],
+    idx:   ['IDX', '8 bit', '主站本地请求标识', 'Table 14'],
+    adp:   [kind === 'position' ? 'ADP（位置）' : 'ADP（节点地址）', '16 bit',
+            kind === 'position' ? '每经一个从站减 1，0 命中' : '配置站地址 / Station Alias', 'Table 14–16'],
+    ado:   ['ADO', '16 bit', '物理寄存器 / 内存地址', 'Table 14'],
+    adr:   ['ADR', '32 bit', '逻辑地址', 'Table 17'],
+    len:   ['LEN | res | C | NEXT', '11 + 3 + 1 + 1 bit',
+            'LEN 数据长度；C 已绕环；NEXT 后面还有 PDU', 'Table 14'],
+    irq:   ['IRQ', '16 bit', '外部事件掩码', 'Table 14'],
+    data:  ['DATA', p.len + ' B', '数据区，长度 = LEN', 'Table 14'],
+    wkc:   ['WKC', '16 bit', '命中累加：读/写 +1，读写 +2', 'Table 14'],
+    pad:   ['PADDING', '', '补足到 64 B 最小帧', 'Table 9'],
+    fcs:   ['FCS', '32 bit', '以太网 CRC32', 'Table 9'],
+  };
+  const d = defs[f] || ['—', '', '', ''];
+  const detail = {
+    cmd:  `<div class="hr"></div><div class="small muted">当前命令解释为 <b>${kind}</b> 寻址；${isRead(p.cmd) ? '读' : ''}${isRead(p.cmd) && isWrite(p.cmd) ? '+' : ''}${isWrite(p.cmd) ? '写' : ''}。命中 ${ev.filter(s => s.contrib).length} 个从站。</div>`,
+    adp:  `<div class="hr"></div><div class="small muted">本帧按位置寻址时，起始 ADP = <b>${state.adp}</b>；经过第 ${state.adp + 1} 个从站时归零并执行。</div>`,
+    wkc:  `<div class="hr"></div><div class="small muted">本帧实际 WKC = <b style="color:#86efac">${hit}</b>；期望值取决于过程映像里有多少映射者，通常等于“参与该逻辑地址的 FMMU 数”。</div>`,
+    eclen:`<div class="hr"></div><div class="small muted">当前值：<b>${buildCells().ecLen}</b> B，11 位最大 2047 B。</div>`,
+  }[f] || '';
+
+  box.innerHTML = `
+    <div class="ins">
+      <div class="lbl">字段</div>
+      <div class="big">${d[0]}</div>
+      <div class="faint" style="margin-top:2px">${d[1]}</div>
+      <div class="hr"></div>
+      <div class="small" style="color:#cfe6f5">${d[2]}</div>
+      ${detail}
+      <div class="hr"></div>
+      <span class="src">ETG.1000.4 ${d[3]}</span>
+    </div>`;
+}
+
+/* ---------------- 帧头可视化 ---------------- */
+function renderFrameHeader() {
+  const { ecLen } = buildCells();
+  const lo = ecLen & 0xff, hi = ((ecLen >> 8) & 0x07) | 0x10; // type=1
+  const wrap = document.getElementById('fchdr');
+  wrap.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <div class="faint" style="font-size:10.5px">bit 7..0</div>
+      <div class="bitrow" id="byte0"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <div class="faint" style="font-size:10.5px">bit 15..8 （高 4 位是 Type）</div>
+      <div class="bitrow" id="byte1"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;justify-content:center;gap:3px;margin-left:14px">
+      <div class="small"><span class="faint">Length</span> = ${ecLen} = 0b${bin(ecLen, 11)}</div>
+      <div class="small"><span class="faint">Type</span> = 0b0001 (EtherCAT PDU)</div>
+      <div class="small"><span class="faint">线上字节</span> <code class="mono">${hex(lo)} ${hex(hi)}</code></div>
+    </div>`;
+  const mk = (host, val, startBit) => {
+    host.innerHTML = '';
+    for (let b = 0; b < 8; b++) {
+      const bitVal = (val >> b) & 1;
+      const abs = startBit + b;
+      const d = document.createElement('div');
+      d.className = 'bit' + (bitVal ? ' set' : '');
+      d.textContent = bitVal;
+      d.dataset.tip = `<b>bit ${abs}</b><div class="r">${abs < 11 ? 'Length 位' : abs < 15 ? 'reserved' : 'Type'}</div>`;
+      host.appendChild(d);
+    }
+  };
+  mk(document.getElementById('byte0'), lo, 0);
+  mk(document.getElementById('byte1'), hi, 8);
+  document.getElementById('fchdr-note').innerHTML =
+    `小端序：先传低字节。Type 在本实现里恒为 1（EtherCAT PDU）；2–3 字节的“长度”字段省掉了以太网头与 FCS，所以接收端要知道 <code class="mono">LEN</code> 才能切出 PDU 序列。`;
+}
+
+/* ---------------- Datagram Header 位图 ---------------- */
+function renderBitRow() {
+  const bytes = hdrOverride || headerBytes();
+  const labels = [
+    ['CMD', 0], ['IDX', 1],
+    ['ADP/ADR · 低', 2], ['ADP/ADR · 高', 3],
+    ['ADO/ADR · 低', 4], ['ADO/ADR · 高', 5],
+    ['LEN[7:0]', 6], ['LEN[10:8] C NEXT', 7],
+    ['IRQ · 低', 8], ['IRQ · 高', 9],
+  ];
+  const host = document.getElementById('bitrow');
+  host.innerHTML = '';
+  labels.forEach(([nm, byte]) => {
+    const grp = document.createElement('div');
+    grp.style.cssText = 'display:flex;flex-direction:column;gap:3px;margin-right:8px';
+    const val = bytes[byte];
+    grp.innerHTML = `
+      <div class="faint" style="font-size:9.5px">${nm}</div>
+      <div class="mono" style="font-size:11px;color:#9fe0ff">${hex0x(val)}</div>
+      <div class="bitrow"></div>`;
+    const row = grp.querySelector('.bitrow');
+    for (let bit = 0; bit < 8; bit++) {
+      const d = document.createElement('div');
+      d.className = 'bit';
+      const on = (val >> bit) & 1;
+      if (on) d.classList.add('set');
+      d.textContent = on;
+      d.style.cursor = 'pointer';
+      d.dataset.tip = `<b>byte ${byte} · bit ${bit}</b><div class="r">LSB-first，小端</div>点击翻转`;
+      d.addEventListener('click', () => toggleBit(byte, bit));
+      row.appendChild(d);
+    }
+    host.appendChild(grp);
+  });
+  renderHdrFields(bytes);
+}
+
+let hdrOverride = null; // 用户翻转后的字节
+
+function toggleBit(byte, bit) {
+  if (!hdrOverride) hdrOverride = headerBytes();
+  hdrOverride[byte] ^= (1 << bit);
+  // 反向解析回 state
+  state.cmd = hdrOverride[0];
+  state.adp = KIND_OF(state.cmd) === 'logical'
+    ? (hdrOverride[2] | (hdrOverride[3] << 8) | (hdrOverride[4] << 16) | (hdrOverride[5] << 24))
+    : (hdrOverride[2] | (hdrOverride[3] << 8));
+  const lw = hdrOverride[6] | (hdrOverride[7] << 8);
+  state.len = lw & 0x7ff;
+  state.irq = hdrOverride[8] | (hdrOverride[9] << 8);
+  state.ado = KIND_OF(state.cmd) === 'logical' ? 0 : (hdrOverride[4] | (hdrOverride[5] << 8));
+  if (state.len < 1) state.len = 1;
+  state.mode = 'custom';
+  document.querySelectorAll('#mode button').forEach(b => b.classList.remove('on'));
+  syncBuilder();
+  rerenderAll();
+  renderBitRow();
+}
+function KIND_OF(c) { return addrKind(c); }
+
+function renderHdrFields(bytes) {
+  const host = document.getElementById('hdr-fields');
+  const kind = addrKind(state.cmd);
+  const w = bytes[6] | (bytes[7] << 8);
+  const len = w & 0x7ff, res = (w >> 11) & 0x7, C = (w >> 14) & 1, NEXT = (w >> 15) & 1;
+  const items = [
+    ['CMD', hex0x(bytes[0]), `${cmdMeta(bytes[0]).abbr} · ${cmdMeta(bytes[0]).name}`, '8 bit'],
+    ['IDX', hex0x(bytes[1]), '主站请求序号', '8 bit'],
+    [kind === 'logical' ? 'ADR' : 'ADP', hex0x(state.adp, kind === 'logical' ? 8 : 4),
+      kind === 'logical' ? '逻辑地址 32 位' : kind === 'position' ? '位置：递减到 0 命中' : '节点地址 / 别名', kind === 'logical' ? '32 bit' : '16 bit'],
+    ['ADO', kind === 'logical' ? '—' : hex0x(state.ado, 4), '物理寄存器/内存地址', '16 bit'],
+    ['LEN', String(len), '数据区字节数', '11 bit'],
+    ['C', String(C), '帧已绕环一圈', '1 bit'],
+    ['NEXT', String(NEXT), '后面还有 PDU', '1 bit'],
+    ['IRQ', hex0x(state.irq, 4), '外部事件', '16 bit'],
+  ];
+  host.innerHTML = items.map(([k, v, note, w]) => `
+    <div style="border:1px solid var(--line-soft);border-radius:10px;padding:8px 10px;background:#0a121a">
+      <div class="faint" style="font-size:10px;letter-spacing:.1em">${k} <span style="float:right">${w}</span></div>
+      <div class="mono" style="font-size:16px;color:#9fe0ff;margin:2px 0">${v}</div>
+      <div class="small faint">${note}</div>
+    </div>`).join('');
+}
+
+/* ---------------- 命令表 ---------------- */
+document.getElementById('cmdtable').innerHTML = `
+  <thead><tr><th>CMD</th><th>缩写</th><th>全名</th><th>寻址</th><th>说明</th></tr></thead>
+  <tbody>${CMDS.map(c => `<tr>
+    <td class="mono" style="color:#7dd3fc">${hex0x(c.code)}</td>
+    <td class="mono"><b>${c.abbr}</b></td>
+    <td>${c.name}</td>
+    <td class="small muted">${c.addr}</td>
+    <td class="small">${c.desc}</td>
+  </tr>`).join('')}</tbody>`;
+
+/* ---------------- 命令选择 chips ---------------- */
+const pick = document.getElementById('cmdpick');
+pick.innerHTML = CMDS.filter(c => c.code !== 0).map(c =>
+  `<button data-c="${c.code}" class="${c.code === state.cmd ? 'on' : ''}">${c.abbr}</button>`).join('');
+pick.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state.cmd = +b.dataset.c;
+  if (addrKind(state.cmd) === 'logical') state.adp = 0x1000;
+  else if (addrKind(state.cmd) === 'node') state.adp = 0x03E8;
+  else state.adp = 0;
+  pick.querySelectorAll('button').forEach(x => x.classList.toggle('on', +x.dataset.c === state.cmd));
+  hdrOverride = null;
+  syncBuilder();
+  rerenderAll();
+  renderBitRow();
+});
+
+/* ---------------- 模式切换 ---------------- */
+document.getElementById('mode').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#mode button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  state.mode = b.dataset.m;
+  hdrOverride = null;
+  if (state.mode === 'rw')  { state.cmd = 0x0C; state.adp = 0x1000; state.len = 4; }
+  if (state.mode === 'aprd'){ state.cmd = 0x01; state.adp = 2; state.ado = 0x0010; state.len = 2; }
+  if (state.mode === 'fprd'){ state.cmd = 0x04; state.adp = 0x03E8; state.ado = 0x0130; state.len = 2; }
+  if (state.mode === 'multi'){ state.adp = 0x1000; state.len = 6; }
+  syncBuilder();
+  rerenderAll();
+  renderBitRow();
+});
+
+/* ---------------- WKC 面板 ---------------- */
+function renderWKC() {
+  const ev = evaluate();
+  const total = ev.reduce((a, s) => a + s.contrib, 0);
+  const kind = addrKind(state.cmd);
+  const expected = kind === 'logical'
+    ? SLAVES.reduce((a, s) => a + s.fmmu.filter(f => {
+        const a0 = state.adp, a1 = state.adp + state.len, b0 = f.ls, b1 = f.ls + f.len;
+        return a0 < b1 && b0 < a1;
+      }).length, 0) * (isRead(state.cmd) && isWrite(state.cmd) ? 2 : 1)
+    : kind === 'broadcast' ? SLAVES.length * (isRead(state.cmd) && isWrite(state.cmd) ? 2 : 1)
+    : kind === 'position' ? (state.adp < SLAVES.length ? (isRead(state.cmd) && isWrite(state.cmd) ? 2 : 1) : 0)
+    : (SLAVES.some(s => s.sta === state.adp) ? (isRead(state.cmd) && isWrite(state.cmd) ? 2 : 1) : 0);
+
+  document.getElementById('wkc-slaves').innerHTML = `
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      ${ev.map(s => `<span class="badge ${s.contrib ? 'm' : ''}" style="opacity:${s.contrib ? 1 : .45}">#${s.pos} ${hex0x(s.sta, 4)}</span>`).join('')}
+    </div>
+    <table class="tbl">
+      <thead><tr><th>从站</th><th>位置</th><th>命中</th><th class="num">贡献</th></tr></thead>
+      <tbody>${ev.map(s => `<tr>
+        <td class="mono">${hex0x(s.sta, 4)}</td>
+        <td class="mono small">${s.pos}</td>
+        <td>${s.hits ? '<span class="badge m">✓ ' + s.hits + '</span>' : '<span class="faint">—</span>'}</td>
+        <td class="num" style="color:${s.contrib ? '#86efac' : '#5a6b7d'}">+${s.contrib}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  document.getElementById('wkc-total').textContent = total;
+  document.getElementById('wkc-exp').textContent = expected;
+  document.getElementById('wkc-total').style.color = total === expected ? '#86efac' : '#fda4af';
+}
+
+/* ---------------- 构造器 ---------------- */
+function syncBuilder() {
+  const sel = document.getElementById('b-cmd');
+  sel.innerHTML = CMDS.filter(c => c.code !== 0).map(c =>
+    `<option value="${c.code}" ${c.code === state.cmd ? 'selected' : ''}>${c.abbr} — ${c.name}</option>`).join('');
+  document.getElementById('b-addr').value = Math.min(65535, state.adp);
+  document.getElementById('b-addr-o').textContent = hex0x(state.adp, 4);
+  document.getElementById('b-ado').value = state.ado;
+  document.getElementById('b-ado-o').textContent = hex0x(state.ado, 4);
+  document.getElementById('b-len').value = state.len;
+  document.getElementById('b-len-o').textContent = state.len;
+  document.getElementById('b-irq').value = state.irq;
+  document.getElementById('b-irq-o').textContent = hex0x(state.irq, 4);
+}
+function bindBuilder() {
+  document.getElementById('b-cmd').addEventListener('change', e => {
+    state.cmd = +e.target.value; hdrOverride = null; renderBitRow(); rerenderAll();
+  });
+  const bindRange = (id, key, out, w) => {
+    document.getElementById(id).addEventListener('input', e => {
+      state[key] = +e.target.value;
+      document.getElementById(out).textContent = hex0x(state[key], w || 4);
+      hdrOverride = null;
+      renderBitRow(); rerenderAll();
+    });
+  };
+  bindRange('b-addr', 'adp', 'b-addr-o');
+  bindRange('b-ado', 'ado', 'b-ado-o');
+  bindRange('b-irq', 'irq', 'b-irq-o');
+  document.getElementById('b-len').addEventListener('input', e => {
+    state.len = +e.target.value;
+    document.getElementById('b-len-o').textContent = state.len;
+    hdrOverride = null; renderBitRow(); rerenderAll();
+  });
+}
+
+function renderBuilder() {
+  const bytes = hdrOverride || headerBytes();
+  document.getElementById('bdump').innerHTML = bytes.map((b, i) =>
+    `<span class="h">${hex(b)}</span>${(i + 1) % 8 === 0 ? '\n' : ' '}`).join('');
+  const kind = addrKind(state.cmd);
+  document.getElementById('bexplain').innerHTML = `
+    <div><b>${cmdMeta(state.cmd).abbr}</b>：${cmdMeta(state.cmd).desc}</div>
+    <div class="hr"></div>
+    <div>寻址方式：<b>${kind}</b></div>
+    <div>ADP/ADR = <code>${hex0x(state.adp, 4)}</code>，ADO = <code>${hex0x(state.ado, 4)}</code></div>
+    <div>LEN = <code>${state.len}</code> B ⇒ PDU 总长 <code>${10 + state.len + 2}</code> B</div>
+    <div class="muted" style="margin-top:8px">LEN 只有 11 位：单 PDU 数据区上限 2047 B。超过就要拆成多个 PDU（用 NEXT 串起来）。</div>`;
+}
+
+/* ---------------- 汇总渲染 ---------------- */
+function rerenderAll() {
+  renderStrip(state.selected);
+  renderFrameHeader();
+  renderWKC();
+  renderBuilder();
+  renderHdrFields(hdrOverride || headerBytes());
+}
+
+/* ---------------- 启动 ---------------- */
+syncBuilder();
+bindBuilder();
+rerenderAll();
+renderBitRow();
+inspect('cmd');
+</script>
+
+<div class="selfcheck sc-idle" id="selfcheck" data-state="idle" role="status" aria-live="polite" tabindex="0"
+     title="脚本未执行：若通过 file:// 打开，请确认 assets/js/ec-core.js 存在；否则按 F12 查看控制台">
+  <span class="sc-dot"></span><span class="sc-text">脚本未执行</span>
+</div>
+
+</body>
+</html>

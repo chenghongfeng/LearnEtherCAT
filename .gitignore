@@ -1,0 +1,17 @@
+# 依赖与临时产物
+.tools/node_modules/
+.tools/package.json
+.tools/package-lock.json
+.dsh_py/
+.tmp_*/
+.tmp_*
+.shots/
+
+# 官方规范 PDF：版权归 ETG，不随仓库分发
+etg_doc/
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

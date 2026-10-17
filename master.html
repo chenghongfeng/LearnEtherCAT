@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>主站视角 · EtherCAT 可视化</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1c26'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='none' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='11' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3EEC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+<style>
+  .matrix td.c{ text-align:center; font-family:var(--mono); }
+  .yes{ color:#4ade80; font-weight:700; }
+  .no{ color:#3b4a5a; }
+  .seq{ display:flex; flex-direction:column; gap:0; }
+  .seq-row{ display:grid; grid-template-columns:64px 1fr 1fr; gap:0; align-items:stretch; }
+  .seq-row .idx{ font-family:var(--mono); font-size:11px; color:var(--text-faint); padding:9px 0; }
+  .seq-row .m,.seq-row .s{ padding:9px 12px; border-top:1px solid var(--line-soft); font-size:12.5px; }
+  .seq-row .m{ background:rgba(56,189,248,.04); border-right:1px solid var(--line-soft); }
+  .seq-row .s{ background:rgba(167,139,250,.04); }
+  .seq-row.on .m{ background:rgba(56,189,248,.16); box-shadow:inset 3px 0 0 var(--master); }
+  .seq-row.on .s{ background:rgba(167,139,250,.14); box-shadow:inset -3px 0 0 var(--sub); }
+  .seq-head{ display:grid; grid-template-columns:64px 1fr 1fr; font-size:10.5px; letter-spacing:.1em; color:var(--text-faint); padding-bottom:6px; }
+  .seq-head div:nth-child(2){ padding-left:12px; } .seq-head div:nth-child(3){ padding-left:12px; }
+  .timeline-wrap{ position:relative; }
+  .timeline-wrap svg{ width:100%; height:auto; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="side" id="side-slot"></div>
+  <div class="main">
+    <div class="topbar" id="top-slot"></div>
+    <div class="wrap">
+
+      <div class="page-head">
+        <div class="eyebrow">ETG.1500 · ETG.1000.5 §4.2.5 · ETG.1510</div>
+        <h1>主站视角 <small>MainDevice 到底做什么</small></h1>
+        <p class="lede">
+          主站不是“发命令的 PLC”，而是一个<b>周期性的帧调度器 + 状态机驱动 + 邮箱路由器</b>。
+          ETG 只规定了它至少要做到什么（Class A / B），没规定怎么实现。
+          下面把 ETG.1500 的能力矩阵、启动时序、周期时间预算和诊断对象拆开看。
+        </p>
+      </div>
+
+      <h2 id="stack">1 · 主站在协议栈里的位置</h2>
+      <div class="grid g3">
+        <div class="card">
+          <div class="badge m">周期路径</div>
+          <h3>过程数据</h3>
+          <p class="small muted">
+            每周期组一帧（或多个 PDU）：LRW 读输入 + 写输出，或拆成 LRD/LWR 两个 PDU。
+            帧在环上转一圈，WKC 回来校验。
+          </p>
+          <p class="small"><span class="src">ETG.1000.5 §4.2.5.2 Slave Handler</span></p>
+        </div>
+        <div class="card">
+          <div class="badge s">非周期路径</div>
+          <h3>邮箱</h3>
+          <p class="small muted">
+            SDO 读写、Emergency、FoE 固件、EoE 隧道都走邮箱（SM0/SM1）。
+            主站要负责分段、重传、超时与 abort code 解析。
+          </p>
+          <p class="small"><span class="src">ETG.1000.6 §5.6 / ETG.1500 §5.6</span></p>
+        </div>
+        <div class="card">
+          <div class="badge w">控制路径</div>
+          <h3>状态与诊断</h3>
+          <p class="small muted">
+            驱动每个从站的 ESM（写 AL Control、轮询 AL Status）、收集 WKC 错误、
+            读 AL Status Code 与诊断历史。
+          </p>
+          <p class="small"><span class="src">ETG.1000.6 Table 103 / ETG.1510</span></p>
+        </div>
+      </div>
+
+      <h2 id="matrix">2 · Class A / Class B 能力矩阵</h2>
+      <p class="lede">
+        ETG.1500 把主站能力压成两档：<b>Class A</b>（标准主站，应尽量达到）与 <b>Class B</b>（资源受限时的最低集）。
+        超出两档的功能用 <b>Feature Pack</b> 描述（如冗余）。下表逐条来自 §5。
+        <span class="src">ETG.1500 §4–5</span>
+      </p>
+      <div class="toolbar">
+        <div class="seg" id="filter">
+          <button data-f="all" class="on">全部</button>
+          <button data-f="onlyA">仅 A 独有</button>
+          <button data-f="common">A/B 共有</button>
+        </div>
+        <div class="spacer"></div>
+        <span class="pill" id="stat-pill">—</span>
+      </div>
+      <div class="scroll">
+        <table class="tbl matrix" id="matrix-tbl"></table>
+      </div>
+
+      <h2 id="boot">3 · 启动时序：从“什么都不知道”到 OP</h2>
+      <p class="lede">
+        这是主站最像“操作系统”的部分：先靠位置寻址把网络摸清，再分配站地址、读 SII、下发配置，
+        最后才进入周期交换。点“播放”或拖动滑块逐步看。
+      </p>
+      <div class="grid g23">
+        <div class="card">
+          <div class="seq-head"><div>步骤</div><div>主站动作</div><div>从站侧发生什么</div></div>
+          <div class="seq" id="seq"></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">当前步骤</h3>
+          <div id="seq-detail" class="small muted">—</div>
+          <div class="hr"></div>
+          <div class="toolbar" style="margin:0">
+            <button class="btn sm" id="seq-prev">← 上一步</button>
+            <button class="btn sm primary" id="seq-next">下一步 →</button>
+            <button class="btn sm ghost" id="seq-play">▶ 自动</button>
+          </div>
+          <div class="progress" style="margin-top:12px"><i id="seq-bar"></i></div>
+        </div>
+      </div>
+
+      <h2 id="cycle">4 · 一个周期的时间去哪了</h2>
+      <p class="lede">
+        主站的实时性体现在“周期内做完所有事”。拖动下面的参数，看帧传输、主站计算、抖动余量怎么挤在一个周期里。
+      </p>
+      <div class="grid g2">
+        <div class="card">
+          <div class="timeline-wrap" id="timeline"></div>
+        </div>
+        <div class="card">
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:4px 0">
+            <label class="small muted">周期 T (µs)</label><output class="mono" id="o-t" style="color:#9fe0ff">500</output>
+          </div>
+          <input type="range" id="s-t" min="125" max="4000" step="125" value="500" style="width:100%">
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:14px 0 4px">
+            <label class="small muted">从站数</label><output class="mono" id="o-n" style="color:#9fe0ff">10</output>
+          </div>
+          <input type="range" id="s-n" min="1" max="200" value="10" style="width:100%">
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:14px 0 4px">
+            <label class="small muted">过程数据帧长 (B)</label><output class="mono" id="o-b" style="color:#9fe0ff">128</output>
+          </div>
+          <input type="range" id="s-b" min="32" max="1024" step="32" value="128" style="width:100%">
+          <div class="hr"></div>
+          <table class="tbl">
+            <tr><td>帧上线时间</td><td class="num" id="c-wire">—</td></tr>
+            <tr><td>从站转发</td><td class="num" id="c-slave">—</td></tr>
+            <tr><td>主站计算 + 堆栈</td><td class="num" id="c-cpu">—</td></tr>
+            <tr><td>剩余余量</td><td class="num" id="c-slack">—</td></tr>
+            <tr><td><b>周期占用率</b></td><td class="num" id="c-util" style="color:#86efac">—</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <h2 id="diag">5 · 主站诊断对象 0x8nnn / 0x9nnn / 0xAnnn</h2>
+      <p class="lede">
+        ETG.1510 把“网络健康”变成主站对象字典里可读的对象，方便上位机统一采集：
+        0x8nnn 描述从站静态属性与链路，0x9nnn 是运行计数，0xAnnn 直接映射 ESC 的 AL 寄存器。
+        <span class="src">ETG.1510 §5.7–5.9</span>
+      </p>
+      <div class="grid g3">
+        <div class="card">
+          <div class="badge">0x8nnn</div>
+          <h3>从站属性与链路</h3>
+          <table class="tbl mini">
+            <tr><td class="mono">:01</td><td>Fixed Station Address</td></tr>
+            <tr><td class="mono">:03</td><td>Name</td></tr>
+            <tr><td class="mono">:05–08</td><td>Vendor / Product / Rev / Serial</td></tr>
+            <tr><td class="mono">:33–34</td><td>Mailbox Out / In Size</td></tr>
+            <tr><td class="mono">:35</td><td>Link Status</td></tr>
+            <tr><td class="mono">:37</td><td>Flags</td></tr>
+            <tr><td class="mono">:38</td><td>Port Physics</td></tr>
+            <tr><td class="mono">:40</td><td>Diag History 支持</td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <div class="badge">0x9nnn</div>
+          <h3>运行计数</h3>
+          <table class="tbl mini">
+            <tr><td class="mono">:01</td><td>Station Address</td></tr>
+            <tr><td class="mono">:05–08</td><td>身份四元组</td></tr>
+            <tr><td class="mono">:32</td><td>DL Status Register</td></tr>
+          </table>
+          <p class="small muted" style="margin-top:10px">
+            0x9nnn 与 0x8nnn 的差别是“可变/计数”语义，适合做趋势曲线。
+          </p>
+        </div>
+        <div class="card">
+          <div class="badge">0xAnnn</div>
+          <h3>AL 寄存器镜像</h3>
+          <table class="tbl mini">
+            <tr><td class="mono">:01</td><td>AL Status</td></tr>
+            <tr><td class="mono">:02</td><td>AL Control</td></tr>
+            <tr><td class="mono">:03</td><td>Last AL Status Code</td></tr>
+            <tr><td class="mono">:04–05</td><td>Link Conn. Status / Control</td></tr>
+            <tr><td class="mono">:10–13</td><td>Frame Error Counter X</td></tr>
+            <tr><td class="mono">:14</td><td>Cyclic WC Error Counter</td></tr>
+            <tr><td class="mono">:15</td><td>Slave Not Present Counter</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <h3 style="margin-top:0">小实验：主站看到 WKC 少了，它会查什么？</h3>
+        <div class="toolbar" style="margin-top:0">
+          <button class="btn sm" data-diag="wc">模拟 WC 错误</button>
+          <button class="btn sm" data-diag="al">模拟 AL Status 错误</button>
+          <button class="btn sm ghost" data-diag="clear">清除</button>
+        </div>
+        <div id="diag-out" class="small muted">点上面的按钮，看主站会依次读哪些对象。</div>
+      </div>
+
+      <footer class="end">
+        <a href="network.html">← 网络实验室</a>
+        <span>下一站：<a href="al.html">从站与状态机 →</a></span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/ec-core.js"></script>
+<script>
+const { MASTER_FEATURES, REGS } = EC_DATA;
+const { renderShell, fmt, hex0x } = EC_UI;
+
+renderShell({ active: 'master', crumbs: ['学习站', '主站', 'MainDevice'], title: 'ETG.1500 §5' });
+
+/* ---------------- 能力矩阵 ---------------- */
+let filterMode = 'all';
+function renderMatrix() {
+  const rows = MASTER_FEATURES.filter(f =>
+    filterMode === 'all' ? true : filterMode === 'onlyA' ? (f.a && !f.b) : (f.a && f.b));
+  document.getElementById('matrix-tbl').innerHTML = `
+    <thead><tr>
+      <th>能力</th><th style="text-align:center">Class A</th><th style="text-align:center">Class B</th><th>规范条款</th>
+    </tr></thead>
+    <tbody>${rows.map(f => `<tr>
+      <td>${f.cap}</td>
+      <td class="c">${f.a ? '<span class="yes">✓</span>' : '<span class="no">—</span>'}</td>
+      <td class="c">${f.b ? '<span class="yes">✓</span>' : '<span class="no">—</span>'}</td>
+      <td class="mono small faint">${f.src}</td>
+    </tr>`).join('')}</tbody>`;
+  const a = MASTER_FEATURES.filter(f => f.a).length;
+  const b = MASTER_FEATURES.filter(f => f.b).length;
+  document.getElementById('stat-pill').textContent =
+    `${rows.length} 项 · Class A ${a}/${MASTER_FEATURES.length} · Class B ${b}/${MASTER_FEATURES.length}`;
+}
+document.getElementById('filter').addEventListener('click', e => {
+  const btn = e.target.closest('button'); if (!btn) return;
+  document.querySelectorAll('#filter button').forEach(x => x.classList.remove('on'));
+  btn.classList.add('on');
+  filterMode = btn.dataset.f;
+  renderMatrix();
+});
+renderMatrix();
+
+/* ---------------- 启动时序 ---------------- */
+const SEQ = [
+  { m: '广播/位置寻址探测：BRD 或 APRD 遍历，确认从站数量', s: 'ESC 转发并响应，ADP 递减',
+    d: '主站此时还不知道站地址，只能用“第几个”来数。<span class="src">ETG.1000.4 §5.4</span>' },
+  { m: '读 SII / EEPROM：厂商、产品码、邮箱大小、默认 FMMU/SM', s: '通过 0x0F00 EEPROM 接口返回',
+    d: 'SII 决定主站怎么配这个从站；这份信息应和 ESI 文件一致。<span class="src">ETG.2010 / ETG.2000</span>' },
+  { m: '分配站地址并写入 0x0010（APWR）', s: 'ESC 保存站地址',
+    d: '之后就可以用 FPRD/FPWR 定向访问，不再依赖物理顺序。<span class="src">ETG.1500 §5.5</span>' },
+  { m: '写 SM0/SM1（邮箱）配置并激活', s: '邮箱通道就绪',
+    d: 'INIT 状态下只能先配邮箱；SM0 = 主→从，SM1 = 从→主。<span class="src">ETG.1000.6 §5.6</span>' },
+  { m: '请求 PREOP：写 AL Control = 0x02', s: 'ESM 进入 PREOP，邮箱可用',
+    d: '主站轮询 AL Status 直到状态位 = 0x02 且无错误。<span class="src">ETG.1000.6 Table 103</span>' },
+  { m: 'CoE：读对象字典、写 PDO 映射（0x1C12/0x1C13）、写参数', s: 'SDO 服务处理，返回响应',
+    d: '这一步可能耗时几十毫秒，但不影响周期实时性，可与其它初始化并行。<span class="src">ETG.1500 §5.7</span>' },
+  { m: '写 SM2/SM3（过程数据）配置与 FMMU', s: '过程数据缓冲区与映射建立',
+    d: 'SM2 = 输出（RxPDO），SM3 = 输入（TxPDO）；FMMU 把逻辑地址映射到物理地址。<span class="src">ETG.1000.4 §6.6–6.7</span>' },
+  { m: '请求 SAFEOP：写 AL Control = 0x04', s: '输入有效，输出保持安全值',
+    d: '此时可以先用输入数据做校验；输出不会驱动负载。<span class="src">ETG.1000.6 §5.4</span>' },
+  { m: '启动 DC：写 0x0900 系统时间、0x0920 偏移、0x0980 延时、0x0C00 激活 SYNC0', s: '时钟对齐，SYNC0 开始输出',
+    d: '需要在 SAFEOP 下完成，才能保证进 OP 后节拍已稳定。<span class="src">ETG.1000.4 §6.8</span>' },
+  { m: '请求 OP：写 AL Control = 0x08', s: 'ESM 进入 OP，输入输出全部有效',
+    d: '进入正常生产；此后任何 AL 错误都会退回 SAFEOP/PREOP。<span class="src">ETG.1000.6 §5.3</span>' },
+  { m: '周期循环：组帧、发送、校验 WKC、拷贝过程映像、处理邮箱与诊断', s: '每周期在 SYNC0 前后完成数据交换',
+    d: '这是稳态。主站要在周期预算内完成帧构造与结果分发。<span class="src">ETG.1500 §5.4</span>' },
+];
+let seqIdx = 0;
+function renderSeq() {
+  document.getElementById('seq').innerHTML = SEQ.map((s, i) => `
+    <div class="seq-row ${i === seqIdx ? 'on' : ''}" data-i="${i}">
+      <div class="idx">${String(i + 1).padStart(2, '0')}</div>
+      <div class="m">${s.m}</div>
+      <div class="s">${s.s}</div>
+    </div>`).join('');
+  const s = SEQ[seqIdx];
+  document.getElementById('seq-detail').innerHTML = `
+    <div style="color:#dff1ff;font-size:13.5px;margin-bottom:8px">${s.m}</div>
+    <div>${s.d}</div>`;
+  document.getElementById('seq-bar').style.width = ((seqIdx + 1) / SEQ.length * 100) + '%';
+  document.querySelectorAll('.seq-row').forEach(n =>
+    n.addEventListener('click', () => { seqIdx = +n.dataset.i; renderSeq(); }));
+}
+document.getElementById('seq-next').addEventListener('click', () => { seqIdx = Math.min(SEQ.length - 1, seqIdx + 1); renderSeq(); });
+document.getElementById('seq-prev').addEventListener('click', () => { seqIdx = Math.max(0, seqIdx - 1); renderSeq(); });
+let seqTimer = null;
+document.getElementById('seq-play').addEventListener('click', e => {
+  if (seqTimer) { clearInterval(seqTimer); seqTimer = null; e.target.textContent = '▶ 自动'; return; }
+  e.target.textContent = '❚❚ 暂停';
+  seqIdx = 0; renderSeq();
+  seqTimer = setInterval(() => {
+    if (seqIdx >= SEQ.length - 1) { clearInterval(seqTimer); seqTimer = null; document.getElementById('seq-play').textContent = '▶ 自动'; return; }
+    seqIdx++; renderSeq();
+  }, 1300);
+});
+renderSeq();
+
+/* ---------------- 周期时间线 ---------------- */
+const sT = document.getElementById('s-t'), sN = document.getElementById('s-n'), sB = document.getElementById('s-b');
+
+function timeline() {
+  const T = +sT.value;              // µs
+  const n = +sN.value;
+  const bytes = +sB.value;
+  const wire = bytes * 0.08;        // 100 Mbit/s: 1 B = 80 ns
+  const slave = n * 0.4;
+  const cpu = Math.min(T * 0.18, 40) + 6;
+  const used = wire + slave + cpu;
+  const over = used > T;
+  const k = over ? T / used : 1;    // 超预算时按比例压缩显示
+  const w2 = wire * k, s2 = slave * k, c2 = cpu * k;
+  const slack = T - used;
+  const util = used / T;
+
+  document.getElementById('o-t').textContent = T;
+  document.getElementById('o-n').textContent = n;
+  document.getElementById('o-b').textContent = bytes;
+  document.getElementById('c-wire').textContent = fmt(wire, 1) + ' µs';
+  document.getElementById('c-slave').textContent = fmt(slave, 1) + ' µs';
+  document.getElementById('c-cpu').textContent = fmt(cpu, 1) + ' µs';
+  document.getElementById('c-slack').textContent = (slack >= 0 ? '' : '−') + fmt(Math.abs(slack), 1) + ' µs';
+  const u = document.getElementById('c-util');
+  u.textContent = (util * 100).toFixed(0) + (over ? '% ⚠ 超预算' : '%');
+  u.style.color = util > 1 ? '#fb7185' : util > 0.8 ? '#fda4af' : util > 0.55 ? '#fcd34d' : '#86efac';
+
+  // 画时间线
+  const W = 560, H = 118;
+  const toX = v => 20 + v / T * (W - 40);
+  const segs = [
+    { x0: 0, x1: c2, c: '#38bdf8', l: 'CPU/栈' },
+    { x0: c2, x1: c2 + w2, c: '#a78bfa', l: '帧上线' },
+    { x0: c2 + w2, x1: c2 + w2 + s2, c: '#34d399', l: '从站转发' },
+  ];
+  const rows = segs.map((s, i) => `
+    <rect x="${toX(s.x0)}" y="${26 + i * 22}" width="${Math.max(1, toX(s.x1) - toX(s.x0))}" height="14" rx="3" fill="${s.c}" opacity=".85"/>
+    <text x="${toX(s.x0) + 4}" y="${37 + i * 22}" fill="#04121c" font-size="9" font-weight="700">${s.l}</text>`).join('');
+
+  document.getElementById('timeline').innerHTML = `
+  <svg viewBox="0 0 ${W} ${H}">
+    <line x1="20" y1="18" x2="${W - 20}" y2="18" stroke="#1e2c3c"/>
+    <text x="20" y="12" fill="#5a6b7d" font-size="9">t = 0</text>
+    <text x="${W - 20}" y="12" fill="#5a6b7d" font-size="9" text-anchor="end">T = ${T} µs</text>
+    ${rows}
+    <line x1="${toX(T)}" y1="18" x2="${toX(T)}" y2="96" stroke="${over ? '#fb7185' : '#fb7185'}" stroke-dasharray="3 3"/>
+    <text x="${toX(T)}" y="108" fill="#fb7185" font-size="9" text-anchor="end">SYNC0 / 下一周期</text>
+    ${!over ? `<rect x="${toX(c2 + w2 + s2)}" y="70" width="${toX(T) - toX(c2 + w2 + s2)}" height="10" rx="3"
+      fill="none" stroke="#2a3a4c" stroke-dasharray="2 2"/>
+      <text x="${toX(c2 + w2 + s2) + 4}" y="78" fill="#5a6b7d" font-size="8">余量 ${fmt(slack, 1)} µs</text>` : `
+      <text x="${W - 20}" y="80" fill="#fb7185" font-size="9" text-anchor="end">帧与计算已超出周期，必须加长 T 或减少从站/数据量</text>`}
+    <text x="20" y="112" fill="#5a6b7d" font-size="8.5">100 Mbit/s 下 1 字节 = 80 ns；从站转发按 0.4 µs/站估算</text>
+  </svg>`;
+}
+[sT, sN, sB].forEach(el => el.addEventListener('input', timeline));
+timeline();
+
+/* ---------------- 诊断小实验 ---------------- */
+const diagOut = document.getElementById('diag-out');
+document.querySelectorAll('[data-diag]').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.diag;
+  if (k === 'clear') { diagOut.innerHTML = '点上面的按钮，看主站会依次读哪些对象。'; return; }
+  if (k === 'wc') {
+    diagOut.innerHTML = `
+      <div style="color:#fda4af;margin-bottom:6px">WKC = 期望值 − 1：有一个从站没被命中或没响应。</div>
+      <ol style="margin:6px 0 0;padding-left:18px">
+        <li>重发本周期帧，确认是否偶发（CRC / 线缆 / EMI）。</li>
+        <li>读 <code>0xAnnn:14</code> Cyclic WC Error Counter，定位到具体从站。</li>
+        <li>读 <code>0x8nnn:35</code> Link Status 与 <code>0xAnnn:10–13</code> Frame Error Counter，判断端口是否断链。</li>
+        <li>读 <code>0xAnnn:01</code> AL Status，若状态掉了则看 <code>:03</code> Last AL Status Code。</li>
+        <li>交叉检查 ESI 与在线 SII：Vendor/Product/Revision 是否匹配。</li>
+      </ol>
+      <div class="small faint" style="margin-top:8px">对象定义见 ETG.1510 §5.7–5.9；AL Status Code 全表见 ETG.1020 §4。</div>`;
+  } else {
+    diagOut.innerHTML = `
+      <div style="color:#fcd34d;margin-bottom:6px">AL Status 报错：从站主动把状态退回，并置 Error Ind。</div>
+      <ol style="margin:6px 0 0;padding-left:18px">
+        <li>读 <code>0x0130</code> AL Status：看 State 位与 Error 位。</li>
+        <li>读 <code>0x0134</code> AL Status Code：如 0x0016 SM 配置不匹配、0x001D 输出配置错误。</li>
+        <li>对照 ETG.1020 §4 的码表翻译成人话。</li>
+        <li>若从站支持 Diag History（<code>0x10F3</code>），读历史记录拿到时间戳与上下文。</li>
+        <li>修正后写 AL Control 的 Ack 位清错，再重新请求目标状态。</li>
+      </ol>
+      <div class="small faint" style="margin-top:8px">状态迁移细节见 ETG.1000.6 Table 103。</div>`;
+  }
+}));
+</script>
+
+<div class="selfcheck sc-idle" id="selfcheck" data-state="idle" role="status" aria-live="polite" tabindex="0"
+     title="脚本未执行：若通过 file:// 打开，请确认 assets/js/ec-core.js 存在；否则按 F12 查看控制台">
+  <span class="sc-dot"></span><span class="sc-text">脚本未执行</span>
+</div>
+
+</body>
+</html>

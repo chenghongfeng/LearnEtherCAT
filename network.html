@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>网络实验室 · EtherCAT 可视化</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1c26'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='none' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='11' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3EEC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+<style>
+  .halt{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .stage svg text{ font-family:var(--mono); }
+  .node-box{ transition:.2s; }
+  .hit-badge{ font-family:var(--mono); font-size:10px; }
+  .legend-row{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--text-dim);margin-top:10px}
+  .legend-row i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:4px}
+  .step-track{display:flex;gap:3px;margin-top:8px}
+  .step-track span{flex:1;height:4px;border-radius:2px;background:#16222f}
+  .step-track span.on{background:var(--master)}
+  .step-track span.done{background:#1f6f52}
+  .mini-tbl td, .mini-tbl th{padding:4px 6px;font-size:11.5px}
+  .flagbox{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .flag{border:1px solid var(--line-soft);border-radius:8px;padding:5px 7px;background:#0a121a}
+  .flag b{display:block;font-family:var(--mono);font-size:14px;color:#9fe0ff}
+  .flag span{font-size:10px;color:var(--text-faint)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="side" id="side-slot"></div>
+  <div class="main">
+    <div class="topbar" id="top-slot"></div>
+    <div class="wrap">
+
+      <div class="page-head">
+        <div class="eyebrow">ETG.1000.3 §4.8 · ETG.1000.4 §5.4 / §6.6 / §6.7</div>
+        <h1>网络实验室 <small>一帧如何穿过 5 个从站</small></h1>
+        <p class="lede">
+          EtherCAT 不是“每个从站收一帧、回一帧”。主站只发<b>一帧</b>，帧沿环依次经过每个从站，
+          从站在转发时用硬件（ESC）就地读写自己那段内存，同时把 WKC 加一。转一圈回来，所有从站的输入都已在帧里。
+        </p>
+      </div>
+
+      <div class="toolbar">
+        <div class="seg" id="scenario">
+          <button data-s="cyc" class="on">周期 LRW</button>
+          <button data-s="enum">上电 APRD/APWR 枚举</button>
+          <button data-s="reg">FPRD 读 AL Status</button>
+          <button data-s="bc">BRD 广播</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="halt">
+          <button class="btn sm" id="btn-play">▶ 发送帧</button>
+          <button class="btn sm ghost" id="btn-step">单步</button>
+          <button class="btn sm ghost" id="btn-reset">复位</button>
+        </div>
+      </div>
+
+      <div class="lab">
+        <div>
+          <div class="stage" id="stage"></div>
+          <div class="legend-row">
+            <span><i style="background:#34d399"></i>下行（主→从）</span>
+            <span><i style="background:#60a5fa"></i>上行（从→主）</span>
+            <span><i style="background:#fbbf24"></i>命中处理</span>
+            <span><i style="background:#475569"></i>未命中，仅转发</span>
+          </div>
+          <div class="step-track" id="track"></div>
+        </div>
+
+        <div class="side-panel">
+          <div class="card">
+            <div class="small faint" style="letter-spacing:.1em">当前 PDU</div>
+            <div class="mono" id="pdu-title" style="font-size:15px;color:#9fe0ff;margin:3px 0 8px">LRW · 逻辑读写</div>
+            <div class="readout" id="pdu-readout"></div>
+          </div>
+          <div class="card">
+            <div class="small faint" style="letter-spacing:.1em">WKC</div>
+            <div class="flagbox" style="margin-top:8px">
+              <div class="flag"><b id="wkc-now">0</b><span>当前</span></div>
+              <div class="flag"><b id="wkc-exp">0</b><span>期望</span></div>
+              <div class="flag"><b id="wkc-state" style="color:#86efac">OK</b><span>判定</span></div>
+            </div>
+            <div class="progress" style="margin-top:10px"><i id="wkc-bar"></i></div>
+          </div>
+          <div class="card" style="padding:12px">
+            <div class="small faint" style="letter-spacing:.1em;margin-bottom:6px">处理日志</div>
+            <div class="log" id="log"></div>
+          </div>
+        </div>
+      </div>
+
+      <h2 id="fmmu">FMMU：逻辑地址怎么落到物理内存</h2>
+      <p class="lede">
+        运行阶段主站只用 32 位<b>逻辑地址</b>。每个从站内部最多 16 个 FMMU 实体，把一段逻辑地址翻译成自己的一段物理地址；
+        一个逻辑地址范围可以被多个从站同时命中——这就是“一个 PDU 写遍全网”的原理。
+        <span class="src">ETG.1000.4 §6.6 / ETG.1000.3 §4.8.5</span>
+      </p>
+      <div class="grid g23">
+        <div class="card">
+          <h3 style="margin-top:0">逻辑地址空间（本示例 0x1000–0x1010）</h3>
+          <div class="frame-strip"><div class="strip" id="lmap" style="gap:1px"></div></div>
+          <div class="small muted" style="margin-top:8px">
+            每个小格 = 1 字节。悬停看它被哪个从站的哪个 FMMU 覆盖。
+          </div>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">FMMU 表</h3>
+          <div class="scroll">
+            <table class="tbl mini-tbl" id="fmmu-tbl"></table>
+          </div>
+        </div>
+      </div>
+
+      <h2>时延预算：为什么 100 个从站也能做到几十微秒</h2>
+      <p class="lede">
+        每个从站的 ESC 在收帧的同时开始转发（cut-through），处理时延典型 <b>0.3–0.6 µs</b>；
+        双绞线约 5 ns/m。帧在环上走一圈的时延基本是“从站数 × 单站时延 + 线缆长度”。
+        <span class="src">数量级参考：ETG.2200 §I / 各厂商 ESC 数据手册</span>
+      </p>
+      <div class="grid g2">
+        <div class="card">
+          <div class="ug" style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:6px 0">
+            <label class="small muted">从站数量</label><output class="mono" id="o-n" style="color:#9fe0ff">5</output>
+          </div>
+          <input type="range" id="s-n" min="1" max="200" value="5" style="width:100%">
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:14px 0 6px">
+            <label class="small muted">单站转发时延 (µs)</label><output class="mono" id="o-d" style="color:#9fe0ff">0.40</output>
+          </div>
+          <input type="range" id="s-d" min="10" max="100" value="40" style="width:100%">
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:14px 0 6px">
+            <label class="small muted">线缆总长 (m)</label><output class="mono" id="o-l" style="color:#9fe0ff">100</output>
+          </div>
+          <input type="range" id="s-l" min="0" max="2000" value="100" style="width:100%">
+        </div>
+        <div class="card">
+          <table class="tbl">
+            <tr><td>从站转发合计</td><td class="num" id="t-slave">2.00 µs</td></tr>
+            <tr><td>线缆传播</td><td class="num" id="t-cable">0.50 µs</td></tr>
+            <tr><td>帧本身在线上（100 Mbit/s）</td><td class="num" id="t-wire">12.2 µs</td></tr>
+            <tr><td><b>单程合计</b></td><td class="num" id="t-total" style="color:#86efac">—</td></tr>
+          </table>
+          <p class="small muted" style="margin-bottom:0">
+            “帧在线上”取决于帧长：100 Mbit/s 下 1 字节 = 80 ns。1000 字节的帧光是把比特推上线就要 80 µs，
+            所以过程数据帧通常控制在几十到几百字节。
+          </p>
+        </div>
+      </div>
+
+      <h2>为什么“位置寻址”只能用于上电</h2>
+      <div class="grid g2">
+        <div class="card">
+          <h3 style="margin-top:0">APRD/APWR 的工作方式</h3>
+          <p class="small muted">
+            ADP 从某个值开始，每经过一个从站减 1；减到 0 的从站执行操作。因此它依赖“当前物理顺序”，
+            一旦有人插拔、换线，位置就变了。所以只在 INIT 阶段用来读 SII、分配站地址。
+          </p>
+          <p class="small"><span class="src">ETG.1000.4 §5.4.1.2 / Table 14</span></p>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">FPRD/FPWR 的节点寻址</h3>
+          <p class="small muted">
+            用配置站地址（0x0010）或 Station Alias 直接命中从站，与物理顺序无关。
+            地址由主站在上电时分配并写进 ESC，同时写进 EEPROM 以便下次开机复用。
+          </p>
+          <p class="small"><span class="src">ETG.1000.3 §4.8.3 / ETG.1500 §5.5</span></p>
+        </div>
+      </div>
+
+      <footer class="end">
+        <a href="frame.html">← 帧解剖</a>
+        <span>下一站：<a href="master.html">主站视角 →</a></span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/ec-core.js"></script>
+<script>
+const { CMDS } = EC_DATA;
+const { renderShell, hex0x, fmt, clamp } = EC_UI;
+
+renderShell({ active: 'network', crumbs: ['学习站', '数据链路层', '网络实验室'], title: 'ETG.1000.4 §6.6' });
+
+/* ---------------- 网络模型 ---------------- */
+const BASE = 0x1000;
+const slavesBase = [
+  { pos: 0, sta: 0x03E8, ports: 2, delay: 0.30, fmmu: [{ ls: 0x1000, len: 2, ps: 0x1000, type: 'Output' }], inp: 2, out: 2 },
+  { pos: 1, sta: 0x03E9, ports: 2, delay: 0.35, fmmu: [{ ls: 0x1000, len: 3, ps: 0x1100, type: 'Output' }], inp: 4, out: 3 },
+  { pos: 2, sta: 0x03EA, ports: 4, delay: 0.45, fmmu: [{ ls: 0x1002, len: 4, ps: 0x1200, type: 'Output' }], inp: 6, out: 4 },
+  { pos: 3, sta: 0x03EB, ports: 2, delay: 0.30, fmmu: [{ ls: 0x1004, len: 2, ps: 0x1300, type: 'Input' }], inp: 3, out: 0 },
+  { pos: 4, sta: 0x03EC, ports: 2, delay: 0.38, fmmu: [{ ls: 0x1006, len: 2, ps: 0x1400, type: 'Input' }], inp: 2, out: 0 },
+];
+
+const SCEN = {
+  cyc: {
+    cmd: 0x0C, name: 'LRW', title: 'LRW · 逻辑读写', addr: BASE, len: 8, ado: 0,
+    kind: 'logical', data: '过程数据（输出映像 + 输入映像）',
+  },
+  enum: {
+    cmd: 0x01, name: 'APRD', title: 'APRD · 自增地址读', addr: 2, len: 2, ado: 0x0010,
+    kind: 'position', data: '读站地址寄存器 0x0010',
+  },
+  reg: {
+    cmd: 0x04, name: 'FPRD', title: 'FPRD · 按站地址读', addr: 0x03EA, len: 2, ado: 0x0130,
+    kind: 'node', data: '读 AL Status 0x0130',
+  },
+  bc: {
+    cmd: 0x07, name: 'BRD', title: 'BRD · 广播读', addr: 0x0000, len: 4, ado: 0x0000,
+    kind: 'broadcast', data: '读所有从站的 0x0000（Type/Revision）',
+  },
+};
+let scenario = 'cyc';
+let cursor = -1;          // -1 未开始；0..n 第 n 个从站；n+1 已回主站
+let wkc = 0;
+let playing = false;
+let timer = null;
+
+/* ---------------- SVG 舞台 ---------------- */
+const W = 1000, H = 300;
+const stage = document.getElementById('stage');
+
+function slaveX(i) { return 210 + i * 150; }
+const TOP_Y = 96, BOT_Y = 208;
+
+function drawStage(activeIdx = -1, hit = [], phase = 'idle') {
+  const s = SCEN[scenario];
+  const parts = [];
+
+  // 主站
+  parts.push(`
+    <g>
+      <rect x="28" y="${TOP_Y - 14}" width="86" height="${BOT_Y - TOP_Y + 28}" rx="12"
+            fill="#0b1c26" stroke="#2b6f97" stroke-width="1.5"/>
+      <text x="71" y="${TOP_Y + 6}" text-anchor="middle" fill="#7dd3fc" font-size="12" font-weight="700">MASTER</text>
+      <text x="71" y="${TOP_Y + 22}" text-anchor="middle" fill="#5a6b7d" font-size="9">MainDevice</text>
+      <circle cx="71" cy="${BOT_Y - 10}" r="4" fill="#38bdf8"/>
+      <text x="71" y="${BOT_Y + 8}" text-anchor="middle" fill="#5a6b7d" font-size="9">周期任务</text>
+    </g>`);
+
+  // 从站
+  slaves.forEach((sl, i) => {
+    const x = slaveX(i);
+    const isActive = i === activeIdx;
+    const isHit = hit.includes(i);
+    const stroke = isActive ? '#fbbf24' : isHit ? '#34d399' : '#2a3a4c';
+    const fill = isActive ? '#1a1607' : '#0b131b';
+    parts.push(`
+      <g class="node-box">
+        ${isActive ? `<circle cx="${x}" cy="${TOP_Y - 28}" r="16" fill="none" stroke="#fbbf24" stroke-width="1" opacity=".5">
+          <animate attributeName="r" values="14;22;14" dur="1s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values=".6;0;.6" dur="1s" repeatCount="indefinite"/></circle>` : ''}
+        <rect x="${x - 46}" y="${TOP_Y - 16}" width="92" height="54" rx="9"
+              fill="${fill}" stroke="${stroke}" stroke-width="${isActive ? 2 : 1.2}"/>
+        <text x="${x}" y="${TOP_Y + 2}" text-anchor="middle" fill="#c9dcec" font-size="10.5" font-weight="700">ESC #${i}</text>
+        <text x="${x}" y="${TOP_Y + 16}" text-anchor="middle" fill="#7dd3fc" font-size="9">${hex0x(sl.sta, 4)}</text>
+        <text x="${x}" y="${TOP_Y + 28}" text-anchor="middle" fill="#5a6b7d" font-size="8">pos ${i} · ${sl.ports}p</text>
+        ${isHit ? `<rect x="${x - 46}" y="${TOP_Y + 40}" width="92" height="16" rx="4" fill="#0e2016" stroke="#2f6f45"/>
+          <text class="hit-badge" x="${x}" y="${TOP_Y + 51}" text-anchor="middle" fill="#86efac">+${s.cmd === 0x0C ? 2 : 1} WKC</text>` : ''}
+        <!-- 端口 -->
+        <circle cx="${x - 46}" cy="${BOT_Y - 22}" r="4" fill="#34d399" opacity=".9"/>
+        <circle cx="${x + 46}" cy="${BOT_Y - 22}" r="4" fill="#34d399" opacity=".9"/>
+        <text x="${x - 46}" y="${BOT_Y - 6}" text-anchor="middle" fill="#5a6b7d" font-size="7.5">IN</text>
+        <text x="${x + 46}" y="${BOT_Y - 6}" text-anchor="middle" fill="#5a6b7d" font-size="7.5">OUT</text>
+      </g>`);
+  });
+
+  // 链路：下行
+  parts.push(`<path d="M114 ${BOT_Y} H ${slaveX(0) - 46}" stroke="#1f6f52" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>`);
+  for (let i = 0; i < slaves.length - 1; i++) {
+    if (slaveX(i) + 46 < slaveX(i + 1) - 46) {
+      parts.push(`<path d="M${slaveX(i) + 46} ${BOT_Y} H ${slaveX(i + 1) - 46}" stroke="#1f6f52" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>`);
+    }
+  }
+  // 环路：最后一个从站绕回主站
+  const lastX = slaveX(slaves.length - 1);
+  parts.push(`<path d="M${lastX + 46} ${BOT_Y} H ${lastX + 70} V ${TOP_Y - 52} H 71 V ${TOP_Y - 16}"
+    stroke="#1f5f8a" stroke-width="1.6" fill="none" stroke-dasharray="4 3"/>`);
+  parts.push(`<text x="${lastX + 80}" y="${TOP_Y - 60}" fill="#5a6b7d" font-size="8">环回（上行）</text>`);
+
+  // 帧指示器
+  let fx = 71, fy = BOT_Y;
+  if (phase === 'forward' && cursor >= 0 && cursor < slaves.length) { fx = slaveX(cursor); fy = BOT_Y; }
+  if (phase === 'return') { fx = 128; fy = TOP_Y - 34; }
+  if (phase !== 'idle') {
+    parts.push(`
+      <g>
+        <rect x="${fx - 22}" y="${fy - 30}" width="44" height="14" rx="4" fill="#0b2a3a" stroke="#38bdf8"/>
+        <text x="${fx}" y="${fy - 20}" text-anchor="middle" fill="#9fe0ff" font-size="8.5">${s.name}</text>
+        <circle cx="${fx}" cy="${fy}" r="5" fill="#7dd3fc">
+          <animate attributeName="opacity" values="1;.45;1" dur=".7s" repeatCount="indefinite"/>
+        </circle>
+      </g>`);
+  }
+
+  // 定义
+  stage.innerHTML = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" fill="#1f6f52"/>
+      </marker>
+    </defs>
+    ${parts.join('')}
+    <text x="26" y="${H - 14}" fill="#5a6b7d" font-size="9">帧由主站发出，经 port0 → port1 逐个从站转发；最后一个从站从 port1 回到主站</text>
+  </svg>`;
+}
+
+/* ---------------- 评估命中 ---------------- */
+function evaluate() {
+  const s = SCEN[scenario];
+  return slaves.map((sl, i) => {
+    let hits = 0;
+    if (s.kind === 'position') { if (i === s.addr) hits = 1; }
+    else if (s.kind === 'node') { if (sl.sta === s.addr) hits = 1; }
+    else if (s.kind === 'broadcast') { hits = 1; }
+    else {
+      const a0 = s.addr, a1 = s.addr + s.len;
+      for (const f of sl.fmmu) {
+        if (a0 < f.ls + f.len && f.ls < a1) hits++;
+      }
+    }
+    const contrib = hits ? (s.cmd === 0x0C || s.cmd === 0x06 || s.cmd === 0x03 ? 2 * hits : hits) : 0;
+    return { hits, contrib };
+  });
+}
+
+function expectedWKC() {
+  const ev = evaluate();
+  return ev.reduce((a, x) => a + x.contrib, 0);
+}
+
+/* ---------------- 渲染面板 ---------------- */
+const logBox = document.getElementById('log');
+function log(msg, cls = '') {
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.textContent = msg;
+  logBox.appendChild(d);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function paint() {
+  const s = SCEN[scenario];
+  const ev = evaluate();
+
+  document.getElementById('pdu-title').textContent = s.title;
+  document.getElementById('pdu-readout').innerHTML = `
+    <div class="row"><span class="k">CMD</span><span class="v">${hex0x(s.cmd)} ${s.name}</span></div>
+    <div class="row"><span class="k">寻址</span><span class="v">${s.kind}</span></div>
+    <div class="row"><span class="k">${s.kind === 'logical' ? 'ADR' : 'ADP'}</span><span class="v">${hex0x(s.addr, s.kind === 'logical' ? 8 : 4)}</span></div>
+    <div class="row"><span class="k">ADO</span><span class="v">${s.kind === 'logical' ? '—' : hex0x(s.ado, 4)}</span></div>
+    <div class="row"><span class="k">LEN</span><span class="v">${s.len} B</span></div>
+    <div class="row"><span class="k">数据</span><span class="v" style="font-size:11px">${s.data}</span></div>`;
+
+  document.getElementById('wkc-now').textContent = wkc;
+  document.getElementById('wkc-exp').textContent = expectedWKC();
+  document.getElementById('wkc-bar').style.width = Math.min(100, wkc / Math.max(1, expectedWKC()) * 100) + '%';
+
+  const ok = wkc === expectedWKC();
+  const done = cursor >= slaves.length;
+  const st = document.getElementById('wkc-state');
+  st.textContent = cursor < 0 ? '—' : !done ? 'IN PROGRESS' : ok ? 'OK' : 'MISMATCH';
+  st.style.color = cursor < 0 ? '#5a6b7d' : !done ? '#fcd34d' : ok ? '#86efac' : '#fda4af';
+
+  // 轨迹
+  const total = slaves.length + 1;
+  document.getElementById('track').innerHTML =
+    Array.from({ length: total }, (_, i) =>
+      `<span class="${i < cursor ? 'done' : i === cursor ? 'on' : ''}"></span>`).join('');
+}
+
+function render(phase = 'idle', activeIdx = -1, hit = []) {
+  drawStage(activeIdx, hit, phase);
+  paint();
+}
+
+/* ---------------- 步进逻辑 ---------------- */
+function reset(keepLog = false) {
+  stop();
+  cursor = -1; wkc = 0;
+  if (!keepLog) logBox.innerHTML = '';
+  render('idle');
+  document.getElementById('btn-play').textContent = '▶ 发送帧';
+}
+
+function step() {
+  const s = SCEN[scenario];
+  const ev = evaluate();
+  if (cursor < 0) {
+    cursor = 0; wkc = 0;
+    log(`→ 主站发出 ${s.name}，ADP/ADR=${hex0x(s.addr, s.kind === 'logical' ? 8 : 4)} LEN=${s.len}`, 'hi');
+    render('forward', 0, ev[0].contrib ? [0] : []);
+    wkc = ev[0].contrib;
+    if (ev[0].contrib) log(`  ESC #0 命中（+${ev[0].contrib} WKC）`, 'ok');
+    else log(`  ESC #0 未命中，仅转发`, '');
+    paint();
+    return false;
+  }
+  if (cursor < slaves.length - 1) {
+    cursor++;
+    wkc += ev[cursor].contrib;
+    render('forward', cursor, ev[cursor].contrib ? [cursor] : []);
+    if (ev[cursor].contrib) log(`  ESC #${cursor} 命中（+${ev[cursor].contrib} WKC）→ ${wkc}`, 'ok');
+    else log(`  ESC #${cursor} 未命中，仅转发`, '');
+    paint();
+    return false;
+  }
+  if (cursor === slaves.length - 1) {
+    cursor = slaves.length;
+    render('return');
+    log(`← 帧回到主站，WKC = ${wkc}（期望 ${expectedWKC()}）`, wkc === expectedWKC() ? 'ok' : 'bad');
+    if (wkc !== expectedWKC()) log('  ⚠ WKC 不匹配：有从站掉线 / 地址错 / FMMU 未映射', 'bad');
+    paint();
+    return true;
+  }
+  return true;
+}
+
+function stop() { playing = false; if (timer) { clearInterval(timer); timer = null; } }
+
+function play() {
+  if (playing) { stop(); document.getElementById('btn-play').textContent = '▶ 继续'; return; }
+  if (cursor >= slaves.length) reset(true);
+  playing = true;
+  document.getElementById('btn-play').textContent = '❚❚ 暂停';
+  timer = setInterval(() => {
+    const done = step();
+    if (done) { stop(); document.getElementById('btn-play').textContent = '▶ 重放'; }
+  }, 850);
+}
+
+/* ---------------- 交互 ---------------- */
+document.getElementById('scenario').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#scenario button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  scenario = b.dataset.s;
+  reset();
+  log(`已切换场景：${SCEN[scenario].title}`, 'hi');
+});
+document.getElementById('btn-play').addEventListener('click', play);
+document.getElementById('btn-step').addEventListener('click', () => { stop(); document.getElementById('btn-play').textContent = '▶ 继续'; step(); });
+document.getElementById('btn-reset').addEventListener('click', () => reset());
+
+/* ---------------- FMMU 图 ---------------- */
+const slaves = slavesBase;
+const LSIZE = 16;
+const lmap = document.getElementById('lmap');
+function renderLMap() {
+  lmap.innerHTML = '';
+  for (let i = 0; i < LSIZE; i++) {
+    const addr = BASE + i;
+    const owner = [];
+    slaves.forEach((sl, si) => sl.fmmu.forEach(f => {
+      if (addr >= f.ls && addr < f.ls + f.len) owner.push({ si, f });
+    }));
+    const d = document.createElement('div');
+    d.className = 'cell small';
+    const c = owner.length ? (owner[0].f.type === 'Input' ? '#065f46' : '#4c1d95') : '';
+    d.style.cssText = `width:38px;min-height:44px;background:${c || '#0d1721'};font-size:9px`;
+    d.innerHTML = `<span class="off">${hex0x(addr, 4).slice(2)}</span>
+      <span class="vl" style="font-size:9px">${owner.length ? 'M' + owner.map(o => o.si).join(',') : '—'}</span>`;
+    d.dataset.tip = owner.length
+      ? `<b>逻辑 0x${addr.toString(16).toUpperCase()}</b><div class="r">被 ${owner.map(o => 'ESC#' + o.si + ' FMMU→phys 0x' + (o.f.ps + (addr - o.f.ls)).toString(16).toUpperCase()).join(' / ')}</div>`
+      : `<b>逻辑 0x${addr.toString(16).toUpperCase()}</b><div class="r">本示例中无 FMMU 覆盖</div>`;
+    lmap.appendChild(d);
+  }
+}
+renderLMap();
+
+document.getElementById('fmmu-tbl').innerHTML = `
+  <thead><tr><th>从站</th><th>逻辑起</th><th>长度</th><th>物理起</th><th>类型</th></tr></thead>
+  <tbody>
+  ${slaves.flatMap((sl, si) => sl.fmmu.map(f => `<tr>
+    <td class="mono">ESC#${si} <span class="faint">${hex0x(sl.sta, 4)}</span></td>
+    <td class="mono">${hex0x(f.ls, 4)}</td>
+    <td class="num">${f.len} B</td>
+    <td class="mono">${hex0x(f.ps, 4)}</td>
+    <td class="small">${f.type === 'Output' ? 'RxPDO（输出）' : 'TxPDO（输入）'}</td>
+  </tr>`)).join('')}
+  </tbody>`;
+
+/* ---------------- 时延计算 ---------------- */
+const sN = document.getElementById('s-n'), sD = document.getElementById('s-d'), sL = document.getElementById('s-l');
+function calcDelay() {
+  const n = +sN.value, d = +sD.value / 100, L = +sL.value;
+  document.getElementById('o-n').textContent = n;
+  document.getElementById('o-d').textContent = fmt(d, 2);
+  document.getElementById('o-l').textContent = L;
+  const tSlave = n * d;
+  const tCable = L * 0.005;            // 5 ns/m
+  const tWire = 8 * 152 * 0.08;        // ~152 B 帧 @100Mbit/s → 80ns/byte
+  document.getElementById('t-slave').textContent = fmt(tSlave, 2) + ' µs';
+  document.getElementById('t-cable').textContent = fmt(tCable, 2) + ' µs';
+  document.getElementById('t-wire').textContent = fmt(tWire, 1) + ' µs';
+  document.getElementById('t-total').textContent = fmt(tSlave + tCable + tWire, 2) + ' µs';
+}
+[sN, sD, sL].forEach(el => el.addEventListener('input', calcDelay));
+calcDelay();
+
+/* 启动 */
+reset();
+log('就绪：选择场景后点“发送帧”，或按单步观察每个从站。', 'hi');
+</script>
+
+<div class="selfcheck sc-idle" id="selfcheck" data-state="idle" role="status" aria-live="polite" tabindex="0"
+     title="脚本未执行：若通过 file:// 打开，请确认 assets/js/ec-core.js 存在；否则按 F12 查看控制台">
+  <span class="sc-dot"></span><span class="sc-text">脚本未执行</span>
+</div>
+
+</body>
+</html>

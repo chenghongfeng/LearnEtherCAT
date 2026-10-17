@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EoE / FoE / SoE 报文 · EtherCAT 可视化</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1c26'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='none' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='11' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3EEC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+<style>
+  /* ---------- 报文条 ---------- */
+  .pkt{display:flex;gap:2px;flex-wrap:nowrap;margin:10px 0 4px;min-height:56px;overflow-x:auto;padding-bottom:6px}
+  .pkt .b{
+    position:relative;min-width:32px;height:58px;flex:0 0 auto;border-radius:6px;border:1px solid rgba(255,255,255,.1);
+    display:flex;flex-direction:column;justify-content:space-between;padding:4px 3px;
+    font-family:var(--mono);font-size:9px;color:#dff1ff;cursor:pointer;overflow:hidden;
+  }
+  .pkt .b:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,.5);z-index:4}
+  .pkt .b .v{font-size:11px;font-weight:700}
+  .pkt .b .n{font-size:8px;color:rgba(255,255,255,.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pkt .b .o{font-size:7.5px;color:rgba(255,255,255,.45)}
+  .p-mbx{background:linear-gradient(180deg,#4c1d95,#2e1259)}
+  .p-eoe{background:linear-gradient(180deg,#075985,#053a4d)}
+  .p-foe{background:linear-gradient(180deg,#7c2d12,#4a1a09)}
+  .p-soe{background:linear-gradient(180deg,#065f46,#043d2e)}
+  .p-data{background:linear-gradient(180deg,#374151,#1f2937)}
+  .p-time{background:linear-gradient(180deg,#78350f,#4a2008)}
+  .p-pad{background:repeating-linear-gradient(45deg,#141d27,#141d27 4px,#101821 4px,#101821 8px);color:var(--text-faint)}
+  .pkt-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text-dim);margin-bottom:14px}
+  .pkt-legend i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:4px}
+
+  .bits32{display:block;white-space:normal;padding:4px 0}
+  .bits32 .bit{width:18px;height:22px;font-size:9px}
+  .bits32 .lab{font-size:8px;color:var(--text-faint);text-align:center}
+
+  .proto-tab{display:flex;gap:2px;background:#0a121a;border:1px solid var(--line);border-radius:10px;padding:3px;flex-wrap:wrap}
+  .proto-tab button{font:600 12.5px var(--sans);color:var(--text-dim);background:transparent;border:0;padding:7px 13px;border-radius:7px;cursor:pointer}
+  .proto-tab button.on{background:#1b2a3a;color:#e9f5ff}
+
+  .flow-h{display:grid;grid-template-columns:1fr 26px 1fr;gap:10px;align-items:start;font-size:12px}
+  .flow-h .lbl{color:var(--text-faint);font-family:var(--mono);font-size:10.5px;margin-bottom:2px}
+  .arrow-col{display:flex;align-items:center;justify-content:center;color:var(--text-faint);padding-top:30px;font-size:18px}
+
+  .seqline{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;
+           padding:9px 12px;border:1px solid var(--line-soft);border-radius:9px;background:#0a121a;margin:6px 0}
+  .seqline .m{color:#7dd3fc}
+  .seqline .s{color:#c4b5fd}
+  .seqline .a{color:var(--text-faint)}
+  .seqline.hi{border-color:#2b6f97;background:#0b1f2b}
+
+  .kvtable td.mono{white-space:nowrap}
+  details.pit{border:1px solid var(--line-soft);border-radius:10px;background:#0a121a;padding:10px 14px;margin:8px 0}
+  details.pit summary{cursor:pointer;font-size:13.5px;color:#e8f2fb}
+  details.pit[open]{border-color:#2b415a}
+  details.pit p{margin:8px 0 0;color:var(--text-dim);font-size:13px}
+  .warnbox{border:1px solid #7a5b1e;background:#1c1607;border-radius:12px;padding:14px 16px;font-size:13px;color:#f7e6bd}
+  .warnbox b{color:#fbbf24}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="side" id="side-slot"></div>
+  <div class="main">
+    <div class="topbar" id="top-slot"></div>
+    <div class="wrap">
+
+      <div class="page-head">
+        <div class="eyebrow">ETG.1000.6 §5.6–5.8 · ETG.1000.5 · IEC 61800-7-204 (SoE)</div>
+        <h1>邮箱三兄弟：EoE / FoE / SoE <small>逐字节拆开</small></h1>
+        <p class="lede">
+          CoE 之外，邮箱还承载三种协议：<b>EoE</b> 把以太网帧隧道进 EtherCAT，<b>FoE</b> 做文件读写（固件升级），
+          <b>SoE</b> 是老的伺服行规（SERCOS over EtherCAT）。它们共用同一个 6 字节邮箱头，
+          靠 <code class="mono">Type</code> 字段分流——但各自的协议头结构完全不同。
+        </p>
+      </div>
+
+      <div class="toolbar">
+        <div class="proto-tab" id="ptab">
+          <button data-p="eoe" class="on">EoE · 以太网隧道</button>
+          <button data-p="foe">FoE · 文件访问</button>
+          <button data-p="soe">SoE · 伺服行规</button>
+          <button data-p="cmp">四协议对比</button>
+        </div>
+        <div class="spacer"></div>
+        <span class="pill">悬停字节看字段</span>
+      </div>
+
+      <!-- ================= EoE ================= -->
+      <section id="sec-eoe">
+        <h2>EoE：把一整个以太网帧塞进邮箱</h2>
+        <p class="lede">
+          用途：给从站一个“以太网口”。典型场景是透过 EtherCAT 访问从站上的 HTTP 配置页、Modbus/TCP 网关、
+          或者用 TCP/IP 做参数服务器。EoE 不改变 EtherCAT 的实时通道，它只是复用邮箱。
+          <span class="src">ETG.1000.6 §5.7</span>
+        </p>
+
+        <div class="grid g23">
+          <div class="card">
+            <h3 style="margin-top:0">EoE Header：4 字节</h3>
+            <p class="small muted">
+              固定 4 字节，但字段的“切法”随服务类型变化：数据服务用 <b>FragmentNumber + Offset + FrameNumber</b>，
+              参数服务把同一位置解释成 <b>Result</b>。这是读 EoE 报文时最容易看错的地方。
+            </p>
+            <div id="eoe-bits"></div>
+            <div class="hr"></div>
+            <table class="tbl" id="eoe-fields"></table>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0">一个完整 EoE 报文</h3>
+            <p class="small muted">6 B 邮箱头 + 4 B EoE 头 + 数据（可选 4 B 时间戳）。</p>
+            <div id="eoe-pkt"></div>
+            <div class="pkt-legend">
+              <span><i style="background:#4c1d95"></i>邮箱头</span>
+              <span><i style="background:#075985"></i>EoE 头</span>
+              <span><i style="background:#374151"></i>以太网帧数据</span>
+              <span><i style="background:#78350f"></i>时间戳</span>
+            </div>
+            <p class="small muted">
+              Length 字段 = 其后的邮箱服务数据长度（4 B EoE 头 + 数据 + 可选时间戳）。
+              数据部分的以太网帧<b>不含前导码、SFD 和 FCS</b>。
+            </p>
+          </div>
+        </div>
+
+        <h3>FrameType：先看第一个字节的低 4 位</h3>
+        <div class="scroll">
+          <table class="tbl" id="eoe-types"></table>
+        </div>
+
+        <h3>分片机制：为什么要有 Fragment Number</h3>
+        <p class="lede">
+          邮箱大小通常只有 128–256 字节，一个 1500 字节的以太网帧必须切块。
+          EoE 按 <b>32 字节</b>为一个块（block），FragmentNumber 和 Offset 都以 block 为单位。
+          最后一个分片把 <code class="mono">LastFragment</code> 置 1，可选追加 4 字节时间戳。
+        </p>
+        <div class="card">
+          <div id="eoe-frag"></div>
+          <div class="small muted" style="margin-top:10px">
+            CompleteSize = Trunc((以太网帧总字节数 + 31) / 32)，即总块数。
+            接收端按 FrameNumber + Offset 重组；同一个 FrameNumber 的分片必须按 offset 递增到达。
+          </div>
+        </div>
+
+        <h3>一次 EoE 会话的完整流程</h3>
+        <div id="eoe-flow"></div>
+      </section>
+
+      <!-- ================= FoE ================= -->
+      <section id="sec-foe" style="display:none">
+        <h2>FoE：文件读写，固件升级的底座</h2>
+        <p class="lede">
+          FoE 是一个极简的文件传输协议：Read / Write / Data / Ack / Error / Busy 六个操作码，
+          没有目录、没有权限模型（只有一个可选的 32 位密码）。固件升级就是
+          <code class="mono">Write Request</code> 打开文件，然后循环 <code class="mono">Data</code> / <code class="mono">Ack</code>。
+          <span class="src">ETG.1000.6 §5.8</span>
+        </p>
+
+        <div class="grid g23">
+          <div class="card">
+            <h3 style="margin-top:0">FoE Header：2 字节</h3>
+            <p class="small muted">
+              <b>OpCode</b> 1 字节 + <b>Reserved</b> 1 字节（必须为 0）。后面紧跟与 OpCode 对应的负载。
+              注意：2 字节头之后的所有多字节字段都是小端序。
+            </p>
+            <div id="foe-head"></div>
+            <div class="hr"></div>
+            <div class="scroll"><table class="tbl" id="foe-ops"></table></div>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0">Write Request 的真实字节</h3>
+            <p class="small muted">文件名 <code class="mono">firmware.bin</code>，密码 <code class="mono">0x00000000</code>（不用密码）。</p>
+            <div id="foe-write"></div>
+            <div class="pkt-legend">
+              <span><i style="background:#4c1d95"></i>邮箱头</span>
+              <span><i style="background:#7c2d12"></i>FoE 头</span>
+              <span><i style="background:#374151"></i>负载</span>
+            </div>
+            <div class="small muted" id="foe-write-note"></div>
+          </div>
+        </div>
+
+        <h3>Data / Ack：一问一答的滑动窗口</h3>
+        <div class="grid g2">
+          <div class="card">
+            <h3 style="margin-top:0">Data Request</h3>
+            <div id="foe-data"></div>
+            <p class="small muted" style="margin-bottom:0">
+              Packet Number 从 1 开始递增。数据区最大长度受邮箱大小限制，
+              通常一次 256–1000 字节。
+            </p>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0">Ack Request</h3>
+            <div id="foe-ack"></div>
+            <p class="small muted" style="margin-bottom:0">
+              从站回 Ack，Packet Number 回显。Packet Number = 0 表示“Ack 的是 Write Request”。
+              主站收到 Ack 才发下一个 Data。
+            </p>
+          </div>
+        </div>
+
+        <h3>完整固件下载时序</h3>
+        <div id="foe-flow"></div>
+        <div class="note warn" style="margin-top:14px">
+          <b>BOOT 状态</b>：固件下载通常要求从站处于 BOOT（ESM 的 0x03），此时邮箱只允许 FoE。
+          有些从站允许在 INIT/PREOP 直接 FoE，但规范推荐走 BOOT，见 <a href="al.html#esm">ESM 页</a>。
+        </div>
+
+        <h3>错误与繁忙</h3>
+        <div class="grid g2">
+          <div class="card">
+            <h3 style="margin-top:0">Error Request（0x05）</h3>
+            <p class="small muted">
+              任意一方都可以发。4 字节 Error Code + 可选文本。常见码：
+            </p>
+            <div class="scroll"><table class="tbl" id="foe-err"></table></div>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0">Busy Request（0x06）</h3>
+            <p class="small muted">
+              从站擦除 Flash 时用它拖住主站，避免主站超时重传。
+            </p>
+            <div id="foe-busy"></div>
+            <p class="small muted" style="margin-bottom:0">
+              Entire = 0 时 Done 是百分比（0–100）；Entire ≠ 0 时 Done/Entire 是同一单位的进度，
+              可算 <code class="mono">100 × Done / Entire</code>。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= SoE ================= -->
+      <section id="sec-soe" style="display:none">
+        <h2>SoE：SERCOS 伺服行规的邮箱通道</h2>
+        <p class="lede">
+          SoE 是早期伺服驱动沿用 SERCOS 参数模型（IDN）的邮箱协议。今天新设计大多直接用 CoE + CiA402，
+          但存量伺服、老设备、以及部分日系驱动仍然只支持 SoE。
+          <span class="src">ETG.1000.6 §5.6（邮箱 Type=0x05）· IEC 61800-7-204（SoE 本体）</span>
+        </p>
+
+        <div class="warnbox">
+          <b>先说明资料边界</b>：本地的 ETG 文档只定义了 SoE 作为邮箱协议的存在
+          （Type = 0x05、AL Status Code 0x0045 MBX_SOE），<b>没有给出 SoE 报文的逐字节结构</b>。
+          下面关于报文字段的描述来自 IEC 61800-7-204 / SERCOS 行规，属于公开标准；
+          图中标 <span class="badge w">外部标准</span> 的部分请以该标准原文为准，不要拿本站当规范。
+        </div>
+
+        <div class="grid g23" style="margin-top:14px">
+          <div class="card">
+            <h3 style="margin-top:0">SoE 报文的分层</h3>
+            <p class="small muted">
+              SoE 复用邮箱的 6 字节头（Type=0x05），后面是 SoE 自己的头 + IDN + 数据。
+              IDN 是 16 位：高 4 位是元素/类型，低 12 位是参数号（S-0-xxxx / P-0-xxxx / C-0-xxxx 的 xxxx）。
+            </p>
+            <div id="soe-pkt"></div>
+            <div class="pkt-legend">
+              <span><i style="background:#4c1d95"></i>邮箱头（Type=0x05）</span>
+              <span><i style="background:#065f46"></i>SoE 头</span>
+              <span><i style="background:#374151"></i>IDN / 数据</span>
+            </div>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0">IDN 怎么读</h3>
+            <div class="bits32" id="soe-idn"></div>
+            <table class="tbl" style="margin-top:10px">
+              <tr><td class="mono">S-0-0047</td><td>位置指令值（Position command value）</td></tr>
+              <tr><td class="mono">S-0-0051</td><td>位置反馈值 1</td></tr>
+              <tr><td class="mono">S-0-0036</td><td>速度指令值</td></tr>
+              <tr><td class="mono">P-0-xxxx</td><td>厂商/产品参数</td></tr>
+            </table>
+            <p class="small muted" style="margin-bottom:0">
+              S-0-0047 → IDN = <code class="mono">0x0047</code>；元素 7（Data State）的 IDN =
+              <code class="mono">0x7047</code>。元素类型决定读回的是值、单位、最小/最大值还是名称。
+            </p>
+          </div>
+        </div>
+
+        <h3>SoE 的读写语义</h3>
+        <div class="grid g2">
+          <div class="card">
+            <h3 style="margin-top:0">读（Read）</h3>
+            <div class="seqline"><span class="m">主站</span><span class="a">→</span><span>SoE Read Request（IDN, 元素）</span></div>
+            <div class="seqline"><span class="s">从站</span><span class="a">→</span><span>SoE Read Response（IDN, 值/状态）</span></div>
+            <p class="small muted">
+              SoE 是“按 IDN 寻址”的请求-响应，不像 CoE 的 SDO 有独立的索引/子索引和分段机制；
+              长数据靠 SoE 自己的多包机制（或直接受邮箱大小限制）。
+            </p>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0">写（Write）</h3>
+            <div class="seqline"><span class="m">主站</span><span class="a">→</span><span>SoE Write Request（IDN, 数据）</span></div>
+            <div class="seqline"><span class="s">从站</span><span class="a">→</span><span>SoE Write Response（IDN, 结果码）</span></div>
+            <p class="small muted">
+              写参数时要带 Data State（元素 7）以确认“值已生效”；很多伺服要求先写参数、
+              再写 Data State = 1，否则重启后丢失。
+            </p>
+          </div>
+        </div>
+
+        <h3>SoE vs CoE：选型时看什么</h3>
+        <div class="scroll">
+          <table class="tbl" id="soe-cmp"></table>
+        </div>
+      </section>
+
+      <!-- ================= 对比 ================= -->
+      <section id="sec-cmp" style="display:none">
+        <h2>四种邮箱协议对比</h2>
+        <p class="lede">
+          同一个邮箱通道，四种协议各有各的“协议头”。排在一起看，结构差异一目了然。
+          <span class="src">ETG.1000.6 Table 18 / §5.6–5.8</span>
+        </p>
+        <div class="scroll">
+          <table class="tbl" id="cmp-table"></table>
+        </div>
+
+        <h3>怎么选</h3>
+        <div class="grid g2">
+          <div class="card">
+            <h3 style="margin-top:0">按用途</h3>
+            <ul class="small" style="padding-left:18px;color:#c9dcec">
+              <li style="margin:5px 0"><b>参数/对象字典</b> → CoE（SDO）</li>
+              <li style="margin:5px 0"><b>固件升级</b> → FoE</li>
+              <li style="margin:5px 0"><b>从站上的 Web/Modbus/TCP</b> → EoE</li>
+              <li style="margin:5px 0"><b>存量伺服、SERCOS 参数</b> → SoE</li>
+              <li style="margin:5px 0"><b>倍福体系 ADS</b> → AoE</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0">按“谁支持”</h3>
+            <p class="small muted">
+              看 SII 的 General Category 里的 <code class="mono">CoE Details</code> /
+              <code class="mono">FoE Details</code> / <code class="mono">EoE Details</code> 字节，
+              以及 Mailbox Protocol 支持位（0x001C）。ESI 里对应 <code class="mono">Mailbox</code> 元素。
+            </p>
+            <p class="small"><span class="src">ETG.1000.6 Table 18 / ETG.2010</span></p>
+          </div>
+        </div>
+
+        <h3>共同的三条铁律</h3>
+        <div class="grid g3">
+          <div class="card">
+            <div class="badge m">①</div>
+            <h3 style="margin-top:8px">邮箱只在 PREOP 及以上可用</h3>
+            <p class="small muted">
+              INIT 只配 SM0/SM1；BOOT 只允许 FoE。想发邮箱，先把 ESM 推到 PREOP。
+            </p>
+          </div>
+          <div class="card">
+            <div class="badge m">②</div>
+            <h3 style="margin-top:8px">Length 不含邮箱头</h3>
+            <p class="small muted">
+              Mailbox Header 的 Length 是“其后服务数据”的长度，不含这 6 字节本身。
+              这是算缓冲区时最常见的 off-by-6。
+            </p>
+          </div>
+          <div class="card">
+            <div class="badge m">③</div>
+            <h3 style="margin-top:8px">Cnt 与 Toggle 是两回事</h3>
+            <p class="small muted">
+              邮箱头的 Cnt 是服务计数（1–7 循环），CoE SDO 的 Toggle 是分段序号；
+              两者独立，别混。
+            </p>
+          </div>
+        </div>
+
+        <h3>现场排查</h3>
+        <details class="pit"><summary>EoE 能 ping 通但吞吐很低</summary>
+          <p>EoE 走邮箱，每帧都要主站轮询 + 从站应答，本质是“停等”协议。吞吐受邮箱大小、主站轮询周期、
+            以及分片数限制。要高速率应该用过程数据或独立网口，而不是 EoE。</p>
+        </details>
+        <details class="pit"><summary>FoE 升到一半报 0x8005 Packet number wrong</summary>
+          <p>主站重传了已确认的包，或从站丢了中间包。检查：① 主站是否等 Ack 再发下一包；
+            ② 从站 Flash 擦除期间是否用 Busy 拖住；③ 邮箱缓冲区是否被其它协议（CoE/EoE）抢占。</p>
+        </details>
+        <details class="pit"><summary>SoE 写参数成功但重启丢失</summary>
+          <p>只写了值，没写 Data State（元素 7）。SERCOS 模型要求写参数后写 Data State 确认生效并落盘。</p>
+        </details>
+        <details class="pit"><summary>邮箱报文长度对不上</summary>
+          <p>先确认 Length 是“不含 6 字节头”的长度；再确认 EoE 的 CompleteSize 是 32 字节块数而不是字节数。</p>
+        </details>
+      </section>
+
+      <footer class="end">
+        <a href="al.html#mailbox">← 回到邮箱与 SDO</a>
+        <span>下一站：<a href="spec.html">规范地图 →</a></span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/ec-core.js"></script>
+<script>
+const { renderShell, hex } = EC_UI;
+
+renderShell({ active: 'mbx', crumbs: ['学习站', '应用层', 'EoE / FoE / SoE'], title: 'ETG.1000.6 §5.7–5.8' });
+
+/* ---------------- 字节条渲染 ---------------- */
+function packet(host, bytes) {
+  host.innerHTML = `<div class="pkt">${bytes.map((b, i) => `
+    <div class="b ${b.c}" data-tip="${(b.tip || '').replace(/"/g, '&quot;')}">
+      <span class="o">${i}</span>
+      <span class="v">${b.v}</span>
+      <span class="n">${b.n}</span>
+    </div>`).join('')}</div>`;
+  host.querySelectorAll('.b').forEach(el => {
+    el.addEventListener('mouseenter', () => {});
+  });
+}
+
+function bytes(hexStr) {
+  return hexStr.trim().split(/\s+/).map(x => parseInt(x, 16));
+}
+
+function tip(title, sub, body) {
+  return `<b>${title}</b><div class="r">${sub}</div>${body || ''}`;
+}
+
+/* ================= EoE ================= */
+/* 一个 Initiate EoE Request：Type=0x02, FrameType=0x00, Port=0, LastFragment=0,
+   TimeAppended=0, TimeRequested=0, FragmentNumber=0, CompleteSize=0x30 (1536 B → 48 blocks), FrameNumber=1 */
+const EOE_MBX = bytes('28 00 E8 03 02 00');          // Len=0x28=40, Addr=0x03E8, Type=0x02|Cnt=0
+const EOE_HDR = bytes('00 00 00 31');                 // FrameType/Port, flags, Frag/Offset/FrameNo
+const EOE_DATA = bytes('01 1B 19 00 00 00 02 00 00 00 00 01 08 00 45 00');
+
+function renderEoe() {
+  // 位图：4 个字节逐位铺开，按字段着色
+  const groups = [
+    { name: 'FrameType', bits: [0, 1, 2, 3], color: '#38bdf8', byte: 0 },
+    { name: 'Port', bits: [4, 5, 6, 7], color: '#0ea5e9', byte: 0 },
+    { name: 'LastFragment', bits: [8], color: '#fbbf24', byte: 1 },
+    { name: 'TimeAppended', bits: [9], color: '#fbbf24', byte: 1 },
+    { name: 'TimeRequested', bits: [10], color: '#fbbf24', byte: 1 },
+    { name: 'reserved', bits: [11, 12, 13, 14, 15], color: '#334155', byte: 1 },
+    { name: 'FragmentNumber', bits: [16, 17, 18, 19, 20, 21], color: '#a78bfa', byte: 2 },
+    { name: 'CompleteSize', bits: [22, 23, 24, 25, 26, 27], color: '#34d399', byte: 2 },
+    { name: 'FrameNumber', bits: [28, 29, 30, 31], color: '#fb7185', byte: 3 },
+  ];
+  const bitOwner = {};
+  groups.forEach(g => g.bits.forEach(b => bitOwner[b] = g));
+
+  const bitHtml = [];
+  for (let b = 0; b < 32; b++) {
+    const byte = b >> 3, off = b & 7;
+    const val = (EOE_HDR[byte] >> off) & 1;
+    const g = bitOwner[b];
+    bitHtml.push(`<div style="display:inline-flex;flex-direction:column;gap:3px;align-items:center;margin-right:1px;vertical-align:top;width:18px;flex:0 0 18px;overflow:hidden">
+      <div class="bit ${val ? 'set' : ''}" style="border-color:${val ? g.color : '#1e2c3c'}"
+           data-tip="bit ${b} · ${g.name} · byte ${byte} bit ${off} · 值 ${val}">${val}</div>
+      <div class="lab" style="color:${g.color};font-size:7.5px">${g.bits[0] === b ? g.name.slice(0, 6) : ''}</div>
+    </div>`);
+  }
+  document.getElementById('eoe-bits').innerHTML = `
+    <div class="bits32">${bitHtml.join('')}</div>
+    <div class="small faint" style="margin-top:8px;line-height:1.8">
+      <span style="color:#38bdf8">■</span> FrameType(4)　
+      <span style="color:#0ea5e9">■</span> Port(4)　
+      <span style="color:#fbbf24">■</span> LastFragment / TimeAppended / TimeRequested　
+      <span style="color:#334155">■</span> reserved(5)　
+      <span style="color:#a78bfa">■</span> FragmentNumber(6)　
+      <span style="color:#34d399">■</span> CompleteSize(6)　
+      <span style="color:#fb7185">■</span> FrameNumber(4)
+    </div>
+    <div class="mono small" style="margin-top:6px;color:#9fe0ff">本帧 EoE 头 = ${EOE_HDR.map(x => hex(x)).join(' ')} → FrameType=0, Port=0, Frag=0, CompleteSize=48, FrameNumber=1</div>`;
+
+  document.getElementById('eoe-fields').innerHTML = `
+    <thead><tr><th>字段</th><th>位宽</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">FrameType</td><td>4</td><td>0x00 数据（Initiate/Fragment）· 0x02 参数请求 · 0x03 数据响应 · 0x04/0x05 地址过滤</td></tr>
+      <tr><td class="mono">Port</td><td>4</td><td>0 = 不指定；1–15 = 指定从站上的物理/虚拟端口</td></tr>
+      <tr><td class="mono">LastFragment</td><td>1</td><td>1 = 本片是最后一个（含时间戳）</td></tr>
+      <tr><td class="mono">TimeAppended</td><td>1</td><td>1 = 最后一片后追加 4 B 时间戳</td></tr>
+      <tr><td class="mono">TimeRequested</td><td>1</td><td>1 = 请求接收时间戳</td></tr>
+      <tr><td class="mono">FragmentNumber</td><td>6</td><td>Initiate 时为 0；Fragment 时为 1–0x2F</td></tr>
+      <tr><td class="mono">CompleteSize / Offset</td><td>6</td><td>32 字节块为单位的“总块数 / 本片偏移块号”</td></tr>
+      <tr><td class="mono">FrameNumber</td><td>4</td><td>以太网帧序号，用于把分片归到同一帧</td></tr>
+    </tbody>`;
+
+  const all = [...EOE_MBX, ...EOE_HDR, ...EOE_DATA];
+  const cells = [];
+  const layout = [
+    ['Len', 2, 'p-mbx'], ['Addr', 2, 'p-mbx'], ['Type', 1, 'p-mbx'], ['Rsv', 1, 'p-mbx'],
+    ['FT/Port', 1, 'p-eoe'], ['Flags', 1, 'p-eoe'], ['FragNum', 1, 'p-eoe'], ['Size/FNo', 1, 'p-eoe'],
+    ['以太网帧数据…', 8, 'p-data'],
+  ];
+  const tips = {
+    Len: tip('Mailbox Length = 0x0028', '2 B', '= 4 B EoE 头 + 0x24 B 数据。'),
+    Addr: tip('Station Address = 0x03E8', '2 B', '目的站地址。'),
+    Type: tip('Type = 0x02 (EoE)', '1 B', '低 4 位 0x2；Cnt=0。'),
+    Rsv: tip('Reserved', '1 B', '0x00。'),
+    'FT/Port': tip('FrameType=0 / Port=0', '1 B', '0x00：数据服务，不指定端口。'),
+    Flags: tip('LastFragment=0 / TimeAppended=0', '1 B', '0x00：后面还有分片，不带时间戳。'),
+    FragNum: tip('FragmentNumber = 0', '1 B', 'Initiate 请求固定 0。'),
+    'Size/FNo': tip('CompleteSize=0x30, FrameNumber=1', '1 B', '0x31：低 6 位 0x30=48 块，高 4 位 0x1。'),
+    '以太网帧数据…': tip('EoE Data', 'N−4 B', '不含前导码/SFD/FCS 的以太网帧。'),
+  };
+  let p = 0;
+  for (const [n, span, c] of layout) {
+    for (let k = 0; k < span; k++) {
+      cells.push({ v: hex(all[p]), n: k === 0 ? n : '', c, tip: tips[n] });
+      p++;
+    }
+  }
+  packet(document.getElementById('eoe-pkt'), cells);
+
+  document.getElementById('eoe-types').innerHTML = `
+    <thead><tr><th>FrameType</th><th>报文</th><th>关键负载</th><th>何时用</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">0x00</td><td>Initiate / Fragment（请求与数据）</td><td>FragmentNumber / CompleteSize 或 Offset / FrameNumber + 以太网帧片段</td><td>收发以太网数据</td></tr>
+      <tr><td class="mono">0x03</td><td>Initiate Response</td><td>Timestamp（4 B）</td><td>从站确认收到并回时间戳</td></tr>
+      <tr><td class="mono">0x02</td><td>Set IP Parameter Request</td><td>IP/MAC/掩码/网关/DNS</td><td>配置从站网络参数</td></tr>
+      <tr><td class="mono">0x04</td><td>Set Address Filter Request</td><td>MAC 过滤表</td><td>限制能穿透到从站的以太网帧</td></tr>
+      <tr><td class="mono">0x05</td><td>Set Address Filter Response</td><td>Result</td><td>过滤表配置结果</td></tr>
+    </tbody>`;
+
+  // 分片示意
+  const frags = [
+    { n: 0, off: 0, last: 0, sz: 32 },
+    { n: 1, off: 1, last: 0, sz: 32 },
+    { n: 2, off: 2, last: 0, sz: 32 },
+    { n: 3, off: 3, last: 1, sz: 16 },
+  ];
+  document.getElementById('eoe-frag').innerHTML = `
+    <div class="frame-strip"><div class="strip" style="align-items:flex-start;gap:6px">
+      ${frags.map(f => `<div style="width:150px;border:1px solid var(--line);border-radius:10px;background:#0a121a;padding:8px">
+        <div class="small" style="color:#7dd3fc">Fragment ${f.n}</div>
+        <div class="small faint" style="font-family:var(--mono)">Offset=${f.off} · ${f.sz} B${f.last ? ' · LAST' : ''}</div>
+        <div style="height:8px;background:#101a24;border-radius:9px;margin-top:6px;overflow:hidden">
+          <i style="display:block;height:100%;width:${f.sz / 32 * 100}%;background:${f.last ? '#34d399' : '#38bdf8'}"></i>
+        </div>
+      </div>`).join('')}
+    </div></div>
+    <div class="mono small" style="margin-top:10px;color:#9fb6c9">
+      FrameNumber = 1（同一帧）· CompleteSize = 4 blocks · LastFragment 只在最后一片为 1
+    </div>`;
+
+  document.getElementById('eoe-flow').innerHTML = [
+    ['主站', 'Initiate EoE Request（FrameType=0, Frag=0, CompleteSize, FrameNumber=1）', 'hi'],
+    ['从站', 'Initiate EoE Response（FrameType=3, Timestamp）', ''],
+    ['主站', 'Fragment 1（Offset=1, 32 B）', ''],
+    ['从站', '收到后继续等下一片（邮箱层 Ack 由 SM 状态位体现）', ''],
+    ['主站', 'Fragment 2 …', ''],
+    ['主站', '最后一片（LastFragment=1, TimeAppended=1, 末尾 4 B 时间戳）', 'hi'],
+  ].map(([who, what, cls]) => `
+    <div class="seqline ${cls}">
+      <span class="${who === '主站' ? 'm' : 's'}">${who}</span>
+      <span class="a">→</span><span>${what}</span>
+    </div>`).join('');
+}
+
+/* ================= FoE ================= */
+function renderFoe() {
+  document.getElementById('foe-head').innerHTML = `
+    <div class="pkt">
+      <div class="b p-foe"><span class="o">0</span><span class="v">OpCode</span><span class="n">操作码</span></div>
+      <div class="b p-foe"><span class="o">1</span><span class="v">00</span><span class="n">Reserved</span></div>
+      <div class="b p-data" style="min-width:120px"><span class="o">2..</span><span class="v">Payload</span><span class="n">随 OpCode 变化</span></div>
+    </div>
+    <div class="small muted">FoE 头固定 2 字节；OpCode 之后的多字节字段均为小端序。</div>`;
+
+  document.getElementById('foe-ops').innerHTML = `
+    <thead><tr><th>OpCode</th><th>报文</th><th>负载</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">0x01</td><td>Read Request</td><td>Password(4) + FileName(n)</td></tr>
+      <tr><td class="mono">0x02</td><td>Write Request</td><td>Password(4) + FileName(n)</td></tr>
+      <tr><td class="mono">0x03</td><td>Data</td><td>PacketNo(4) + Data(n)</td></tr>
+      <tr><td class="mono">0x04</td><td>Ack</td><td>PacketNo(4)</td></tr>
+      <tr><td class="mono">0x05</td><td>Error</td><td>ErrorCode(4) + Text(n)</td></tr>
+      <tr><td class="mono">0x06</td><td>Busy</td><td>Done(2) + Entire(2) + Text(n)</td></tr>
+    </tbody>`;
+
+  // Write Request: Len = 2 + 4 + 12 = 18 = 0x12
+  const name = 'firmware.bin';
+  const nameBytes = [...name].map(ch => ch.charCodeAt(0));
+  const wr = [0x12, 0x00, 0xE8, 0x03, 0x04, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, ...nameBytes];
+  const layout = [
+    ['Len', 2, 'p-mbx', tip('Mailbox Length = 0x0012', '18 B', '= 2 B FoE 头 + 4 B Password + 12 B 文件名。')],
+    ['Addr', 2, 'p-mbx', tip('Station Address = 0x03E8', '2 B', '目的站地址。')],
+    ['Type', 1, 'p-mbx', tip('Type = 0x04 (FoE)', '1 B', '低 4 位 0x4；Cnt=0。')],
+    ['Rsv', 1, 'p-mbx', tip('Reserved', '1 B', '0x00。')],
+    ['Op 02', 1, 'p-foe', tip('OpCode = 0x02', 'Write Request', '打开文件准备写入。')],
+    ['00', 1, 'p-foe', tip('Reserved', '1 B', '必须为 0。')],
+    ['Password', 4, 'p-data', tip('Password = 0x00000000', '4 B', '0 = 不使用密码。')],
+    ['FileName', nameBytes.length, 'p-data', tip('File Name', `${nameBytes.length} B ASCII`, '不含结尾 0；长度 = n − 6。')],
+  ];
+  const cells = [];
+  let i = 0;
+  for (const [n, span, c, t] of layout) {
+    for (let k = 0; k < span; k++) {
+      cells.push({ v: hex(wr[i]), n: k === 0 ? n : '', c, tip: t });
+      i++;
+    }
+  }
+  packet(document.getElementById('foe-write'), cells);
+  document.getElementById('foe-write-note').innerHTML =
+    `Length = 0x0012 = 18 B；不算 6 B 邮箱头。文件名 <code class="mono">${name}</code> 按 ASCII 逐字节放。`;
+
+  // Data Request: Len = 2 + 4 + 8 = 14 = 0x0E
+  const data = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
+  const dr = [0x0E, 0x00, 0xE8, 0x03, 0x04, 0x00, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, ...data];
+  const dlayout = [
+    ['Len 0E', 2, 'p-mbx'], ['Addr', 2, 'p-mbx'], ['Type', 1, 'p-mbx'], ['Rsv', 1, 'p-mbx'],
+    ['Op 03', 1, 'p-foe'], ['00', 1, 'p-foe'],
+    ['PacketNo 1', 4, 'p-data'], ['Data…', 8, 'p-data'],
+  ];
+  let j = 0, dcells = [];
+  for (const [n, span, c] of dlayout) {
+    for (let k = 0; k < span; k++) {
+      dcells.push({ v: hex(dr[j]), n: k === 0 ? n : '', c, tip: tip(n, span + ' B', n.includes('PacketNo') ? '包号从 1 开始，Ack 回显。' : '') });
+      j++;
+    }
+  }
+  packet(document.getElementById('foe-data'), dcells);
+
+  const ack = [0x06, 0x00, 0x01, 0x00, 0x04, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00];
+  const alayout = [
+    ['Len 06', 2, 'p-mbx'], ['Addr', 2, 'p-mbx'], ['Type', 1, 'p-mbx'], ['Rsv', 1, 'p-mbx'],
+    ['Op 04', 1, 'p-foe'], ['00', 1, 'p-foe'], ['PacketNo 1', 4, 'p-data'],
+  ];
+  let k = 0, acells = [];
+  for (const [n, span, c] of alayout) {
+    for (let q = 0; q < span; q++) {
+      acells.push({ v: hex(ack[k]), n: q === 0 ? n : '', c, tip: tip(n, span + ' B', '') });
+      k++;
+    }
+  }
+  packet(document.getElementById('foe-ack'), acells);
+
+  document.getElementById('foe-flow').innerHTML = [
+    ['主站', 'ESM → BOOT（AL Control = 0x03）', 'hi'],
+    ['主站', 'Write Request（0x02）：Password + FileName', 'hi'],
+    ['从站', 'Ack（0x04）：PacketNo = 0', ''],
+    ['主站', 'Data（0x03）：PacketNo = 1 + 数据', ''],
+    ['从站', 'Ack（0x04）：PacketNo = 1', ''],
+    ['主站', 'Data（0x03）：PacketNo = 2 + 数据 …', ''],
+    ['从站', '擦 Flash 时可能插 Busy（0x06）', ''],
+    ['从站', '全部收完 → 最后一个 Ack', ''],
+    ['主站', 'ESM → INIT / 重启从站', 'hi'],
+  ].map(([who, what, cls]) => `<div class="seqline ${cls}">
+      <span class="${who === '主站' ? 'm' : 's'}">${who}</span>
+      <span class="a">→</span><span>${what}</span></div>`).join('');
+
+  const ERR = [
+    [0x8000, 'Not defined'], [0x8001, 'Not found'], [0x8002, 'Access denied'],
+    [0x8003, 'Disk full'], [0x8004, 'Illegal'], [0x8005, 'Packet number wrong'],
+    [0x8006, 'Already exists'], [0x8007, 'No user'], [0x8008, 'Bootstrap only'],
+    [0x8009, 'Not Bootstrap'], [0x800A, 'No rights'], [0x800B, 'Program Error'],
+  ];
+  document.getElementById('foe-err').innerHTML = `
+    <thead><tr><th>Error Code</th><th>含义</th></tr></thead>
+    <tbody>${ERR.map(([c, m]) => `<tr><td class="mono">0x${hex(c, 4)}</td><td>${m}</td></tr>`).join('')}</tbody>`;
+
+  const busy = [0x08, 0x00, 0x01, 0x00, 0x04, 0x00, 0x06, 0x00, 0x2D, 0x00, 0x00, 0x00];
+  const blayout = [
+    ['Len 08', 2, 'p-mbx'], ['Addr', 2, 'p-mbx'], ['Type', 1, 'p-mbx'], ['Rsv', 1, 'p-mbx'],
+    ['Op 06', 1, 'p-foe'], ['00', 1, 'p-foe'], ['Done 45', 2, 'p-data'], ['Entire 0', 2, 'p-data'],
+  ];
+  let m = 0, bcells = [];
+  for (const [n, span, c] of blayout) {
+    for (let q = 0; q < span; q++) {
+      bcells.push({ v: hex(busy[m]), n: q === 0 ? n : '', c, tip: tip(n, span + ' B', '') });
+      m++;
+    }
+  }
+  packet(document.getElementById('foe-busy'), bcells);
+}
+
+/* ================= SoE ================= */
+function renderSoe() {
+  // SoE 报文示意：邮箱头(6) + SoE 头(2: OpCode + 保留/长度) + IDN(2) + 数据(4)
+  const raw = [0x0C, 0x00, 0xE8, 0x03, 0x8F, 0x00, 0x01, 0x00, 0x47, 0x00, 0x00, 0x00];
+  const layout = [
+    ['Len 0C', 2, 'p-mbx', tip('Mailbox Length', '2 B', '其后服务数据长度。')],
+    ['Addr', 2, 'p-mbx', tip('Station Address', '2 B', '站地址。')],
+    ['Type=0x0F', 1, 'p-mbx', tip('Type = 0x0F (SoE) / Length Bit=1', '1 B · 0x8F', '低 4 位 0x0F = SoE；最高位是 SoE 的 Length Bit：1 = 帧里有长度字段。')],
+    ['Rsv', 1, 'p-mbx', tip('Reserved', '1 B', '0x00。')],
+    ['OpCode', 1, 'p-soe', tip('SoE OpCode', '1 B · 外部标准', 'SoE 服务码；具体取值见 IEC 61800-7-204。')],
+    ['Flags', 1, 'p-soe', tip('Flags / 保留', '1 B · 外部标准', 'SoE 头的第二个字节，随服务变化。')],
+    ['IDN', 2, 'p-data', tip('IDN = 0x0047', '2 B', 'S-0-0047：位置指令值。')],
+    ['Data', 4, 'p-data', tip('SoE Data', 'n B', '参数值；写操作时带 Data State 才落盘。')],
+  ];
+  let i = 0;
+  const cells = [];
+  for (const [n, span, c, t] of layout) {
+    for (let k = 0; k < span; k++) {
+      cells.push({ v: hex(raw[i] ?? 0), n: k === 0 ? n : '', c, tip: t });
+      i++;
+    }
+  }
+  packet(document.getElementById('soe-pkt'), cells);
+
+  // IDN 位图：元素 3 位 + 参数号 12 位（16 位里高 4 位保留/元素）
+  const idn = 0x0047;
+  const bits = [];
+  for (let b = 0; b < 16; b++) {
+    const v = (idn >> b) & 1;
+    const label = b < 12 ? `参数号 bit${b}` : b < 15 ? `元素 bit${b - 12}` : 'res';
+    bits.push(`<div style="display:inline-flex;flex-direction:column;gap:2px;align-items:center;width:18px;flex:0 0 18px;margin-right:1px;vertical-align:top">
+      <div class="bit ${v ? 'set' : ''}" data-tip="bit ${b} · ${label}">${v}</div>
+      ${b % 4 === 3 ? '<div class="lab" style="font-size:7px">|</div>' : '<div class="lab"></div>'}
+    </div>`);
+  }
+  document.getElementById('soe-idn').innerHTML = bits.join('') +
+    `<div class="small faint" style="margin-top:6px">0x0047 = 0b0000 0000 0100 0111：低 12 位 0x047 = 参数 47，高 4 位 0 = 元素 0（参数值本身）</div>`;
+
+  document.getElementById('soe-cmp').innerHTML = `
+    <thead><tr><th>维度</th><th>SoE</th><th>CoE</th></tr></thead>
+    <tbody>
+      <tr><td>参数寻址</td><td>16 位 IDN（S-0-xxxx / P-0-xxxx）</td><td>16 位 Index + 8 位 SubIndex</td></tr>
+      <tr><td>数据模型</td><td>SERCOS 参数（含元素：值/单位/最值/名称）</td><td>CANopen 对象字典（含 PDO 映射）</td></tr>
+      <tr><td>分段</td><td>SoE 自有机制</td><td>SDO segmented + Complete Access</td></tr>
+      <tr><td>过程数据</td><td>走 PDO（与 CoE 类似）</td><td>PDO（0x1C12/0x1C13 配置）</td></tr>
+      <tr><td>典型用户</td><td>存量伺服、SERCOS 体系</td><td>新设计的主流选择（CiA402）</td></tr>
+      <tr><td>本地资料</td><td>仅 Type=0x05 与 AL Status Code 0x0045</td><td>ETG.1000.6 §5.6 完整定义</td></tr>
+    </tbody>`;
+}
+
+/* ================= 对比表 ================= */
+function renderCmp() {
+  document.getElementById('cmp-table').innerHTML = `
+    <thead><tr>
+      <th>协议</th><th>邮箱 Type</th><th>协议头</th><th>寻址</th><th>典型用途</th><th>可用状态</th>
+    </tr></thead>
+    <tbody>
+      <tr><td><b>AoE</b></td><td class="mono">0x01</td><td class="mono">AoE Header（6 B）</td><td>Port + IndexGroup + IndexOffset</td><td>倍福 ADS、路由</td><td>PREOP / SAFEOP / OP</td></tr>
+      <tr><td><b>EoE</b></td><td class="mono">0x02</td><td class="mono">EoE Header（4 B）</td><td>FrameType + Port + FrameNumber</td><td>隧道以太网、Web/Modbus/TCP</td><td>PREOP 及以上</td></tr>
+      <tr><td><b>CoE</b></td><td class="mono">0x03</td><td class="mono">CoE Header（2 B）</td><td>Index + SubIndex</td><td>SDO/PDO/Emergency</td><td>PREOP 及以上</td></tr>
+      <tr><td><b>FoE</b></td><td class="mono">0x04</td><td class="mono">FoE Header（2 B）</td><td>OpCode + PacketNo</td><td>固件/文件传输</td><td>BOOT（推荐）/ INIT / PREOP</td></tr>
+      <tr><td><b>SoE</b></td><td class="mono">0x05</td><td class="mono">SoE Header（2 B）</td><td>IDN（16 位）</td><td>SERCOS 伺服参数</td><td>PREOP 及以上</td></tr>
+      <tr><td><b>VoE</b></td><td class="mono">0x0F</td><td class="mono">Vendor Header</td><td>厂商定义</td><td>厂商私有</td><td>PREOP 及以上</td></tr>
+    </tbody>`;
+}
+
+/* ---------------- tab 切换 ---------------- */
+const secs = { eoe: 'sec-eoe', foe: 'sec-foe', soe: 'sec-soe', cmp: 'sec-cmp' };
+document.getElementById('ptab').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#ptab button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  for (const [k, id] of Object.entries(secs)) {
+    document.getElementById(id).style.display = k === b.dataset.p ? '' : 'none';
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+renderEoe();
+renderFoe();
+renderSoe();
+renderCmp();
+</script>
+<div class="selfcheck sc-idle" id="selfcheck" data-state="idle" role="status" aria-live="polite" tabindex="0"
+     title="脚本未执行：若通过 file:// 打开，请确认 assets/js/ec-core.js 存在；否则按 F12 查看控制台">
+  <span class="sc-dot"></span><span class="sc-text">脚本未执行</span>
+</div>
+
+</body>
+</html>

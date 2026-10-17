@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EtherCAT 学习手册 · 通读版</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1c26'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='none' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='11' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3EEC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+<style>
+  .doc-grid{display:grid;grid-template-columns:250px minmax(0,1fr);gap:34px;align-items:start}
+  .toc{position:sticky;top:64px;max-height:calc(100vh - 90px);overflow:auto;border-left:1px solid var(--line);padding-left:14px}
+  .toc a{display:block;color:var(--text-dim);font-size:12.5px;padding:3px 0;text-decoration:none;border-left:2px solid transparent;padding-left:8px;margin-left:-16px}
+  .toc a:hover{color:var(--text);border-left-color:#2b415a}
+  .toc a.lvl3{font-size:11.5px;color:var(--text-faint);padding-left:20px}
+  .toc a.on{color:#9fe0ff;border-left-color:var(--master)}
+  .doc h1{font-size:32px;margin:0 0 8px}
+  .doc h2{font-size:22px;margin:38px 0 12px}
+  .doc h3{font-size:16px;margin:22px 0 8px}
+  .doc p{color:#c3d5e4;max-width:82ch}
+  .doc li{color:#c3d5e4;margin:4px 0}
+  .doc code{background:#0c1620;border:1px solid #1b2a3a;border-radius:4px;padding:0 4px;font-size:12.5px;color:#9fe0ff}
+  .doc pre.code code{background:none;border:0;padding:0;color:#cfe6f5}
+  .doc .note{margin:16px 0}
+  .doc .scroll{margin:12px 0}
+  @media (max-width:1000px){.doc-grid{grid-template-columns:minmax(0,1fr)} .toc{display:none}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="side" id="side-slot"></div>
+  <div class="main">
+    <div class="topbar" id="top-slot"></div>
+    <div class="wrap">
+      <div class="doc-grid">
+        <aside class="toc" id="toc"><a href="#t-0-先建立一个正确的心智模型" class="lvl2">0. 先建立一个正确的心智模型</a>
+<a href="#t-1-三层协议栈" class="lvl2">1. 三层协议栈</a>
+<a href="#t-1-1-物理层-两种介质" class="lvl3">1.1 物理层：两种介质</a>
+<a href="#t-1-2-数据链路层-一帧到底是什么" class="lvl3">1.2 数据链路层：一帧到底是什么</a>
+<a href="#t-1-3-命令码-按-寻址-读写-两维划分" class="lvl3">1.3 命令码：按&quot;寻址 × 读写&quot;两维划分</a>
+<a href="#t-1-4-三种寻址方式的生命周期" class="lvl3">1.4 三种寻址方式的生命周期</a>
+<a href="#t-2-一次周期通信的完整路径" class="lvl2">2. 一次周期通信的完整路径</a>
+<a href="#t-2-1-工作计数器-WKC-主站的签收单" class="lvl3">2.1 工作计数器 WKC：主站的签收单</a>
+<a href="#t-3-状态机-为什么上电后不能立刻交换过程数据" class="lvl2">3. 状态机：为什么上电后不能立刻交换过程数据</a>
+<a href="#t-4-邮箱-配置期怎么说话" class="lvl2">4. 邮箱：配置期怎么说话</a>
+<a href="#t-4-1-SDO-的三种传法" class="lvl3">4.1 SDO 的三种传法</a>
+<a href="#t-4-2-PDO-与过程数据" class="lvl3">4.2 PDO 与过程数据</a>
+<a href="#t-4-3-CoE-之外的三种邮箱协议" class="lvl3">4.3 CoE 之外的三种邮箱协议</a>
+<a href="#t-5-分布式时钟-确定性的最后一公里" class="lvl2">5. 分布式时钟：确定性的最后一公里</a>
+<a href="#t-5-1-三步" class="lvl3">5.1 三步</a>
+<a href="#t-5-2-参考时钟" class="lvl3">5.2 参考时钟</a>
+<a href="#t-5-3-SYNC0-SYNC1" class="lvl3">5.3 SYNC0 / SYNC1</a>
+<a href="#t-6-主站-ETG-只规定-至少做到什么" class="lvl2">6. 主站：ETG 只规定&quot;至少做到什么&quot;</a>
+<a href="#t-7-从站-两份身份证" class="lvl2">7. 从站：两份身份证</a>
+<a href="#t-7-1-ESI-XML-设计期" class="lvl3">7.1 ESI（XML，设计期）</a>
+<a href="#t-7-2-SII-EEPROM-运行期" class="lvl3">7.2 SII（EEPROM，运行期）</a>
+<a href="#t-7-3-一致性" class="lvl3">7.3 一致性</a>
+<a href="#t-8-冗余-热插拔与-EtherCAT-G" class="lvl2">8. 冗余、热插拔与 EtherCAT G</a>
+<a href="#t-9-建议的学习路径" class="lvl2">9. 建议的学习路径</a>
+<a href="#t-推荐精读顺序" class="lvl3">推荐精读顺序</a>
+<a href="#t-10-常见误解清单" class="lvl2">10. 常见误解清单</a>
+<a href="#t-附录-A-寄存器速查" class="lvl2">附录 A：寄存器速查</a>
+<a href="#t-附录-B-AL-Status-Code-速查" class="lvl2">附录 B：AL Status Code 速查</a>
+<a href="#t-附录-C-本地文档清单" class="lvl2">附录 C：本地文档清单</a></aside>
+        <article class="doc">
+<h1 id="t-EtherCAT-学习手册">EtherCAT 学习手册</h1>
+<div class="note">一份可以通读的版本，配合站内的 7 个交互页面使用。 所有结论都可以在 <code>etg_doc/</code> 的官方规范里找到对应条款；文中 <code>〔ETG.xxxx §x〕</code> 是回查标记。</div>
+<hr>
+<h2 id="t-0-先建立一个正确的心智模型">0. 先建立一个正确的心智模型</h2>
+<p>很多人第一次接触 EtherCAT，会把它想成"更快的 Modbus"：主站挨个问从站"你的输入是多少"。 <strong>不是的。</strong></p>
+<p>EtherCAT 的工作方式是：</p>
+<ol>
+<li>主站每个周期只发<strong>一个以太网帧</strong>；</li>
+<li>帧里装着若干 <strong>EtherCAT PDU（datagram）</strong>，每个 PDU 指向一段地址；</li>
+<li>帧沿着网络<strong>依次穿过</strong>每个从站，从站用硬件（ESC）在转发的同时<strong>就地读写</strong>自己那段内存；</li>
+<li>帧绕一圈回到主站，所有从站的输入都已经在帧里了。</li>
+</ol>
+<p>所以它是一个<strong>在环上循环的共享内存</strong>，而不是请求-响应式总线。 这带来三个直接后果：</p>
+<ul>
+<li>周期时间几乎与从站数量线性相关（每站几百纳秒），而不是往返次数；</li>
+<li>一个 PDU 可以同时命中多个从站（逻辑寻址），实现"一帧写遍全网"；</li>
+<li>主站必须在发帧前把整张过程映像组好，发帧后整张解析——这决定了主站软件的结构。</li>
+</ul>
+<p>〔ETG.1000.4 §4.7 / §5.3〕</p>
+<hr>
+<h2 id="t-1-三层协议栈">1. 三层协议栈</h2>
+<p>EtherCAT 只用了 OSI 的三层。这个"只用三层"的设计是它确定性的根源： 没有 IP 路由、没有 TCP 重传、没有应用层会话，全部压进以太网帧的一个 EtherType。</p>
+<div class="scroll"><table class="tbl"><thead><tr><th>OSI</th><th>EtherCAT</th><th>规范</th><th>主要职责</th></tr></thead><tbody><tr><td>L7 应用层</td><td>AL</td><td>ETG.1000.5 / .6</td><td>对象字典、PDO、SDO、ESM 状态机、邮箱协议</td></tr><tr><td>L2 数据链路层</td><td>DLL</td><td>ETG.1000.3 / .4</td><td>帧与 PDU 编码、寻址、FMMU、SyncManager、WKC、DC 寄存器</td></tr><tr><td>L1 物理层</td><td>PHY</td><td>ETG.1000.2</td><td>100BASE-TX（MII）与 E-Bus（LVDS）、编码、端口</td></tr></tbody></table></div>
+<p>再往上，<strong>设备行规</strong>（DS402 驱动、ETG.5001 IO-Link、FSoE 安全）才定义"这些字节代表什么物理量"。</p>
+<h3 id="t-1-1-物理层-两种介质">1.1 物理层：两种介质</h3>
+<ul>
+<li><strong>100BASE-TX</strong>：标准以太网 PHY，RJ45，全双工，但 EtherCAT 只用其物理层，不用 CSMA/CD。</li>
+<li><strong>E-Bus</strong>：ETG 定义的 LVDS 点对点背板总线，用于模块化从站（耦合器 + 端子模块），延迟更低、成本更低。</li>
+<li>端口数可以是 2（线型）、3/4（分支或冗余）。</li>
+</ul>
+<p>一个常被忽略的点：从站不是"收完整个帧再处理"，而是<strong>边收边转发</strong>（cut-through）。 这就是为什么单站延迟可以做到亚微秒级，也是为什么帧不能被分片、不能走需要重组的链路。</p>
+<p>〔ETG.1000.2 §9–10〕</p>
+<h3 id="t-1-2-数据链路层-一帧到底是什么">1.2 数据链路层：一帧到底是什么</h3>
+<p>一个 EtherCAT 帧 = 标准以太网头 + EtherType <code>0x88A4</code> + EtherCAT 帧头 + 1..n 个 PDU + FCS。</p>
+<p><strong>EtherCAT 帧头</strong>（2 字节）：</p>
+<pre class="code"><code>bit  15..11   10..0
+     res      Length         —— Length = 其后 ECAT 内容长度（不含这 2 字节），11 位，≤2047</code></pre>
+<p>实际上这 2 字节里还有 4 位 Type（0x1 = EtherCAT PDU，0x4 = 网络变量，0x5 = 邮箱），</p>
+<p>所以布局是：<code>Length:11 | Reserved:1 | Type:4</code>。</p>
+<p><strong>Datagram Header</strong>（10 字节），这是全站最该背下来的一张表：</p>
+<div class="scroll"><table class="tbl"><thead><tr><th>偏移</th><th>字段</th><th>宽度</th><th>含义</th></tr></thead><tbody><tr><td>+0</td><td>CMD</td><td>8 bit</td><td>服务命令，见下表</td></tr><tr><td>+1</td><td>IDX</td><td>8 bit</td><td>主站本地请求号，从站不得修改</td></tr><tr><td>+2</td><td>ADP / ADR</td><td>16 bit</td><td>位置寻址（递减）或节点地址（站地址/别名）</td></tr><tr><td>+4</td><td>ADO</td><td>16 bit</td><td>从站内部物理地址（寄存器/内存）</td></tr><tr><td>+6</td><td>LEN \</td><td>res \</td><td>C \</td><td>NEXT</td><td>11+3+1+1</td><td>数据长度、保留、已绕环、后面还有 PDU</td></tr><tr><td>+8</td><td>IRQ</td><td>16 bit</td><td>外部事件掩码</td></tr><tr><td>+10</td><td>DATA</td><td>LEN 字节</td><td>数据区</td></tr><tr><td>+10+LEN</td><td>WKC</td><td>16 bit</td><td>工作计数器</td></tr></tbody></table></div>
+<p>逻辑寻址时，ADP+ADO 这 4 个字节合并成 32 位 <strong>ADR</strong>（逻辑地址），所以头部仍然是 10 字节。</p>
+<p>〔ETG.1000.4 Table 14〕</p>
+<h3 id="t-1-3-命令码-按-寻址-读写-两维划分">1.3 命令码：按"寻址 × 读写"两维划分</h3>
+<div class="scroll"><table class="tbl"><thead><tr><th>寻址方式</th><th>读</th><th>写</th><th>读写</th></tr></thead><tbody><tr><td>位置（自增）</td><td>APRD <code>0x01</code></td><td>APWR <code>0x02</code></td><td>APRW <code>0x03</code></td></tr><tr><td>节点（站地址）</td><td>FPRD <code>0x04</code></td><td>FPWR <code>0x05</code></td><td>FPRW <code>0x06</code></td></tr><tr><td>广播</td><td>BRD <code>0x07</code></td><td>BWR <code>0x08</code></td><td>BRW <code>0x09</code></td></tr><tr><td>逻辑（32 位）</td><td>LRD <code>0x0A</code></td><td>LWR <code>0x0B</code></td><td>LRW <code>0x0C</code></td></tr><tr><td>特殊</td><td>ARMW <code>0x0D</code>（读一写多）</td><td>FRMW <code>0x0E</code>（读一写多）</td><td>—</td></tr></tbody></table></div>
+<p>外加 <code>NOP 0x00</code>。<strong>运行阶段的周期通信几乎只用 LRW</strong>；APRD/APWR 只在 INIT 阶段用来摸清拓扑； ARMW/FRMW 专供分布式时钟的漂移补偿（读一个从站的值，写给所有从站）。</p>
+<p>〔ETG.1000.4 §5.4〕</p>
+<h3 id="t-1-4-三种寻址方式的生命周期">1.4 三种寻址方式的生命周期</h3>
+<pre class="code"><code>上电 / INIT ── APRD, APWR（按物理位置数第几个）──&gt; 读 SII、分配站地址
+配置 / PREOP ── FPRD, FPWR（按已分配的站地址）──&gt; 写 SM/FMMU/对象字典
+运行 / OP   ── LRD, LWR, LRW（32 位逻辑地址）──&gt; 过程数据交换</code></pre>
+<p>位置寻址依赖"当前物理顺序"，插拔一个从站就会错位——所以它只用于上电枚举。 一旦站地址分配完成，后续全部用节点寻址或逻辑寻址，与物理顺序解耦。</p>
+<p>〔ETG.1000.3 §4.8 / ETG.1500 §5.5〕</p>
+<hr>
+<h2 id="t-2-一次周期通信的完整路径">2. 一次周期通信的完整路径</h2>
+<p>以 5 个从站、1 ms 周期为例：</p>
+<pre class="code"><code>主站 CPU
+  │ ① 组帧：把输出过程映像拷进 LRW 的数据区
+  │ ② 发送：网卡把帧推上线（100 Mbit/s，1 字节 = 80 ns）
+  ▼
+ESC #0 ──► ESC #1 ──► ESC #2 ──► ESC #3 ──► ESC #4
+  │           │           │           │           │
+  │ 每站：查 FMMU → 命中则把帧里的数据写入物理内存，
+  │       或把物理内存的数据填进帧；WKC += 1（读写都做则 +2）
+  ▼
+帧沿环回到主站
+  │ ③ 校验 WKC 是否等于期望值
+  │ ④ 解帧：把数据区拷回输入过程映像
+  ▼
+应用任务（PLC / 运动控制）</code></pre>
+<p><strong>时间都花在哪：</strong> 帧上线（帧长 × 80 ns）+ 每站转发（0.3–0.6 µs）+ 线缆（5 ns/m）+ 主站组帧/解帧。 一个 128 字节的帧、10 个从站，典型在 15–20 µs 量级；1 ms 周期下占用不到 2%。 真正的瓶颈往往在主站软件（拷贝、锁、调度），而不是网络。</p>
+<p>〔ETG.1500 §5.4 / 各厂商 ESC 数据手册〕</p>
+<h3 id="t-2-1-工作计数器-WKC-主站的签收单">2.1 工作计数器 WKC：主站的签收单</h3>
+<ul>
+<li>读命中 +1，写命中 +1，读写都命中 +2；</li>
+<li>计数单位是"<strong>命中次数</strong>"，不是"从站个数"：一个从站有 2 个 FMMU 落在该逻辑地址范围，就 +2；</li>
+<li>主站比对 WKC 与期望值，不等就说明：从站掉线 / 地址错 / FMMU 未映射 / 数据长度不匹配。</li>
+</ul>
+<p>注意 WKC 只证明"有从站处理了"，不证明"数据是对的"。数据正确性要靠 AL Status、CRC 计数、 以及应用层的合理性检查。</p>
+<p>〔ETG.1000.4 §5.4.1.1〕</p>
+<hr>
+<h2 id="t-3-状态机-为什么上电后不能立刻交换过程数据">3. 状态机：为什么上电后不能立刻交换过程数据</h2>
+<p>EtherCAT 从站有一个五态状态机（ESM）。主站写 <code>AL Control (0x0120)</code> 请求状态， 从站把当前状态放在 <code>AL Status (0x0130)</code>，出错时把原因放进 <code>AL Status Code (0x0134)</code>。</p>
+<pre class="code"><code>        ┌──────────┐
+        │   INIT   │◄──────────────┐
+        └────┬─────┘               │
+             │ 邮箱配好               │ 任意错误 / 强制复位
+        ┌────▼─────┐               │
+        │  PREOP   │───────────────┤
+        └────┬─────┘               │
+             │ SM2/SM3 + FMMU 配好   │
+        ┌────▼─────┐               │
+        │  SAFEOP  │───────────────┤
+        └────┬─────┘               │
+             │ 输出就绪               │
+        ┌────▼─────┐               │
+        │    OP    │───────────────┘
+        └──────────┘
+
+  INIT ──► BOOT（仅 FoE 固件下载）</code></pre>
+<div class="scroll"><table class="tbl"><thead><tr><th>状态</th><th>AL Control 值</th><th>邮箱</th><th>过程数据</th><th>典型动作</th></tr></thead><tbody><tr><td>INIT</td><td>0x01</td><td>未配置</td><td>不可用</td><td>读 SII、分配站地址</td></tr><tr><td>PREOP</td><td>0x02</td><td>可用</td><td>不可用</td><td>SDO 配置、PDO 映射</td></tr><tr><td>SAFEOP</td><td>0x04</td><td>可用</td><td>输入有效，输出保持安全值</td><td>验证输入、建立 DC 同步</td></tr><tr><td>OP</td><td>0x08</td><td>可用</td><td>输入输出全部有效</td><td>正常生产</td></tr><tr><td>BOOT</td><td>0x03</td><td>仅 FoE</td><td>不可用</td><td>固件升级</td></tr></tbody></table></div>
+<p>规则：<strong>向上迁移需要无错误</strong>；任何 AL 错误会把状态退回，并阻止进入 OP。 每次迁移都是"请求 → 从站执行 → 状态确认"，主站必须轮询 <code>AL Status</code> 直到看到目标状态。</p>
+<p>〔ETG.1000.6 §5.3 / Table 103〕</p>
+<hr>
+<h2 id="t-4-邮箱-配置期怎么说话">4. 邮箱：配置期怎么说话</h2>
+<p>运行期的过程数据是"广播式"的；配置期需要"点对点、可靠、可分段"的通道，这就是邮箱。</p>
+<p>邮箱走 SyncManager 0（主→从）和 1（从→主）。每个报文 = 6 字节 Mailbox Header + 协议头 + 数据。</p>
+<p><strong>Mailbox Header（6 B）</strong>：Length(2) · Address(2) · Channel(6b)+Priority(2b) · Type(4b)+Cnt(3b)+Res(1b)。</p>
+<p>Type 决定协议：</p>
+<div class="scroll"><table class="tbl"><thead><tr><th>Type</th><th>协议</th><th>用途</th></tr></thead><tbody><tr><td>0x01</td><td>AoE</td><td>ADS over EtherCAT（Twincat/倍福体系）</td></tr><tr><td>0x02</td><td>EoE</td><td>把以太网帧隧道进 EtherCAT</td></tr><tr><td>0x03</td><td>CoE</td><td>CANopen over EtherCAT（SDO / PDO / Emergency）</td></tr><tr><td>0x04</td><td>FoE</td><td>文件访问（固件升级）</td></tr><tr><td>0x05</td><td>SoE</td><td>Servo Drive Profile（旧版伺服行规）</td></tr></tbody></table></div>
+<p><strong>CoE 是最常用的</strong>。CoE 头 2 字节：<code>Number:9 | Reserved:3 | Service:4</code>， Service 0x02/0x03 是 SDO 请求/响应，0x01 是 Emergency。</p>
+<h3 id="t-4-1-SDO-的三种传法">4.1 SDO 的三种传法</h3>
+<ul>
+<li><strong>Expedited</strong>：数据 ≤ 4 字节，直接塞在 SDO 头里，一次往返。</li>
+<li><strong>Segmented</strong>：数据更长时，先 Initiate 拿到总长度，再一段段传；Toggle 位交替用于发现丢包。</li>
+<li><strong>Complete Access</strong>：一次读写整个对象的所有子索引，减少往返；要求从站支持且字节布局连续。</li>
+</ul>
+<h3 id="t-4-2-PDO-与过程数据">4.2 PDO 与过程数据</h3>
+<p>PDO 是把对象"打包"进过程数据的方式：</p>
+<ul>
+<li><code>0x1C12</code>（RxPDO 分配）/ <code>0x1C13</code>（TxPDO 分配）决定哪些 PDO 参与交换；</li>
+<li><code>0x16xx</code> / <code>0x1Axx</code> 决定每个 PDO 里放哪些对象、什么顺序；</li>
+<li>主站按 ESI 里声明的顺序和位宽计算过程映像偏移，再把这些偏移配置进 FMMU。</li>
+</ul>
+<p><strong>这就是为什么 ESI、SII、固件里的对象字典必须完全一致</strong>：错一个字节，整段数据就错位。</p>
+<p>〔ETG.1000.6 §5.6 / ETG.1500 §5.7〕</p>
+<h3 id="t-4-3-CoE-之外的三种邮箱协议">4.3 CoE 之外的三种邮箱协议</h3>
+<p>同一个邮箱通道，靠 Mailbox Header 的 Type 字段分流：</p>
+<div class="scroll"><table class="tbl"><thead><tr><th>Type</th><th>协议</th><th>头长度</th><th>关键结构</th><th>典型用途</th></tr></thead><tbody><tr><td>0x01</td><td>AoE</td><td>6 B</td><td>Port + IndexGroup + IndexOffset</td><td>倍福 ADS、路由</td></tr><tr><td>0x02</td><td>EoE</td><td>4 B</td><td>FrameType/Port + FragmentNumber + CompleteSize + FrameNumber</td><td>隧道以太网、Web/Modbus/TCP</td></tr><tr><td>0x03</td><td>CoE</td><td>2 B</td><td>Service + Index/SubIndex</td><td>SDO/PDO/Emergency</td></tr><tr><td>0x04</td><td>FoE</td><td>2 B</td><td>OpCode + Password/FileName/PacketNo</td><td>固件与文件传输</td></tr><tr><td>0x0F</td><td>SoE</td><td>2 B + 可选长度</td><td>IDN（16 位）</td><td>SERCOS 伺服参数</td></tr></tbody></table></div>
+<p><strong>EoE</strong> 把一整个以太网帧（去掉前导码、SFD、FCS）切进邮箱，按 32 字节为一个 block， 用 FragmentNumber / Offset 重组；最后一个分片把 LastFragment 置 1，可追加 4 字节时间戳。 它是"停等"式的，吞吐受邮箱大小和主站轮询周期限制。</p>
+<p><strong>FoE</strong> 只有六个操作码：Read(0x01) / Write(0x02) / Data(0x03) / Ack(0x04) / Error(0x05) / Busy(0x06)。 固件升级 = Write Request 打开文件 + 循环 Data/Ack；从站擦 Flash 时可用 Busy 拖住主站。 推荐在 BOOT 状态做，此时邮箱只允许 FoE。</p>
+<p><strong>SoE</strong> 沿用 SERCOS 的 IDN 参数模型（S-0-xxxx / P-0-xxxx），与 CoE 的 Index/SubIndex 是两套体系。 注意：本地 ETG 文档只定义了 SoE 作为邮箱协议的存在（Type=0x0F、AL Status Code 0x0045）， 报文的逐字节结构在 IEC 61800-7-204 里，不在 ETG.1000 里。</p>
+<p>〔ETG.1000.6 §5.6–5.8 / IEC 61800-7-204〕</p>
+<hr>
+<h2 id="t-5-分布式时钟-确定性的最后一公里">5. 分布式时钟：确定性的最后一公里</h2>
+<p>即使帧按时到达，各从站的本地晶振也会漂。DC 的目标是让所有从站的时钟对齐到同一个系统时间， 并由 SYNC0 产生本地同步脉冲。</p>
+<h3 id="t-5-1-三步">5.1 三步</h3>
+<ol>
+<li><strong>测传播延时</strong>：帧绕环，每个从站记录端口 0 与端口 1 收到 SOF 的时刻，差值写入 <code>0x0980</code>；</li>
+</ol>
+<p>逐级累加得到每个从站相对参考时钟的延时。</p>
+<ol>
+<li><strong>写偏移</strong>：参考时钟把系统时间写进帧；其它从站用自己的本地时间减去帧里的系统时间，</li>
+</ol>
+<p>把差值写入 <code>0x0920</code>。之后"系统时间 = 本地时间 − 偏移"。</p>
+<ol>
+<li><strong>持续补偿漂移</strong>：主站周期性用 ARMW/FRMW 读参考时钟的漂移值并"多写"给所有从站（<code>0x0928</code>），</li>
+</ol>
+<p>微调每个从站的时钟速率。</p>
+<h3 id="t-5-2-参考时钟">5.2 参考时钟</h3>
+<p>默认是"<strong>第一个支持 DC 的从站</strong>"。如果拓扑变化或该从站被换掉，系统时间基准会变， 所有偏移需要重算。部分主站允许显式指定参考从站。</p>
+<h3 id="t-5-3-SYNC0-SYNC1">5.3 SYNC0 / SYNC1</h3>
+<p>DC 只对齐"时间"，真正的动作由 SYNC0（周期脉冲）和 SYNC1（可配相位）触发。 SYNC0 周期必须是主站周期的整数倍，否则每个周期都会出现相位跳变，表现为周期性抖动。</p>
+<p>〔ETG.1000.4 §6.8 / ETG.1500 §5.13〕</p>
+<hr>
+<h2 id="t-6-主站-ETG-只规定-至少做到什么">6. 主站：ETG 只规定"至少做到什么"</h2>
+<p>ETG.1500 把主站能力压成两档：</p>
+<ul>
+<li><strong>Class A</strong>（标准主站）：完整命令集、IRQ、设备仿真、VLAN、多任务、帧重复、完整邮箱与 CoE、</li>
+</ul>
+<p>EoE/FoE/SoE/AoE/VoE、DC 与连续传播延时测量。</p>
+<ul>
+<li><strong>Class B</strong>（最低集）：核心命令、ESM、基本 PDO、邮箱、CoE SDO、Emergency、EEPROM 访问。</li>
+</ul>
+<p>超出两档的功能用 <strong>Feature Pack</strong> 描述（如冗余、热插拔）。选主站时，先看它声明了哪些 Class 与 Feature Pack， 再看它的实时性实现（是否在内核态、是否用专用网卡、是否支持 DC）。</p>
+<p>主站软件通常分三层：</p>
+<pre class="code"><code>应用/PLC 任务
+   │  读写过程映像（共享内存）
+   ▼
+主站核心：周期调度器（组帧/发帧/解帧/WKC 校验/状态机/邮箱路由/诊断）
+   │
+   ▼
+网卡驱动（raw socket / 专用 MAC / FPGA）</code></pre>
+<p>〔ETG.1500 §4–5〕</p>
+<hr>
+<h2 id="t-7-从站-两份身份证">7. 从站：两份身份证</h2>
+<h3 id="t-7-1-ESI-XML-设计期">7.1 ESI（XML，设计期）</h3>
+<p><code>ETG.2000</code> 定义结构，<code>ETG.2001</code> 用例子解释语义。核心元素：</p>
+<pre class="code"><code>EtherCATInfo
+├── Vendor (Id, Name)
+└── Descriptions
+    ├── Groups
+    └── Devices
+        └── Device (Physics)
+            ├── Type (ProductCode, RevisionNo)
+            ├── Name (多语言)
+            ├── Info (Electrical, Mailbox Timeout)
+            └── Profile
+                ├── Dictionary (DataTypes, Objects)
+                ├── Sm (SyncManager 定义)
+                ├── TxPdo / RxPdo (含 Entry)
+                ├── Fmmu
+                └── Dc (OpMode, AssignActivate, Sync0/1)</code></pre>
+<h3 id="t-7-2-SII-EEPROM-运行期">7.2 SII（EEPROM，运行期）</h3>
+<p>主站上电时先读 SII，才能在还没有 ESI 的情况下知道"这台设备怎么配"。SII 以 16 位字编址：</p>
+<ul>
+<li>固定头：VendorId、ProductCode、Revision、Serial、硬件/软件版本、站别名、邮箱配置、CRC；</li>
+<li>之后按类别（Category）组织：Strings、General、FMMU、SyncManager、TxPDO、RxPDO、DC。</li>
+</ul>
+<p>访问通过 ESC 的 <code>0x0F00</code> EEPROM 接口。</p>
+<h3 id="t-7-3-一致性">7.3 一致性</h3>
+<p><code>ETG.7000.2</code> 是官方测试记录（A1–A10 章），测试中心按它逐项打勾： ESI、CTT 协议测试、指示灯、显式设备识别、DC、行规、标记、互操作。 开发阶段就应该按它自测，而不是等送测才发现问题。</p>
+<p>〔ETG.2000 / ETG.2010 / ETG.7000.2 / ETG.2200〕</p>
+<hr>
+<h2 id="t-8-冗余-热插拔与-EtherCAT-G">8. 冗余、热插拔与 EtherCAT G</h2>
+<ul>
+<li><strong>线缆冗余</strong>：从站有 3–4 个端口，主站从两个方向发同一帧；断一处，帧从另一方向到达。</li>
+</ul>
+<p>需要主站支持 Feature Pack "Redundancy"，并处理重复帧（C 位）。</p>
+<ul>
+<li><strong>热插拔 / Hot Connect</strong>：允许运行中增删从站组；主站需要识别拓扑变化并重新配置该段，</li>
+</ul>
+<p>对主站实现要求较高。</p>
+<ul>
+<li><strong>EtherCAT G</strong>：把物理层换成 1 Gbit/s（G）或 2.5/5/10 Gbit/s（G10），帧格式与协议不变，</li>
+</ul>
+<p>适合高采样率视觉/测量场景。</p>
+<p>〔ETG.1000.4 §5.3（C 位）/ ETG.1500 §5.4.3〕</p>
+<hr>
+<h2 id="t-9-建议的学习路径">9. 建议的学习路径</h2>
+<ol>
+<li><strong>先跑交互页</strong>：帧解剖 → 网络实验室。建立"帧在环上走、从站就地读写"的直觉。</li>
+<li><strong>再读状态机</strong>：从站与状态机页。理解 INIT→PREOP→SAFEOP→OP 每一步在使能什么。</li>
+<li><strong>然后看设备描述</strong>：ESI/SII 页。理解设计期契约与运行期事实怎么对上。</li>
+<li><strong>最后抠时间</strong>：分布式时钟页。理解偏移、漂移、SYNC0。</li>
+<li><strong>回到规范</strong>：按规范地图逐条回查；ETG.1000.4 §5 与 ETG.1000.6 §5 是两本必须精读的。</li>
+</ol>
+<h3 id="t-推荐精读顺序">推荐精读顺序</h3>
+<div class="scroll"><table class="tbl"><thead><tr><th>顺序</th><th>文档</th><th>章节</th><th>为什么</th></tr></thead><tbody><tr><td>1</td><td>ETG.1000.1</td><td>§5–6</td><td>建立全局分层</td></tr><tr><td>2</td><td>ETG.1000.4</td><td>§5.3–5.4</td><td>帧与命令，最核心</td></tr><tr><td>3</td><td>ETG.1000.6</td><td>§5.3–5.6</td><td>ESM、邮箱、SDO/PDO</td></tr><tr><td>4</td><td>ETG.1000.3</td><td>§4.8</td><td>寻址/FMMU/SM 的概念</td></tr><tr><td>5</td><td>ETG.1020</td><td>§4–5</td><td>AL Status Code 与 SII 细节</td></tr><tr><td>6</td><td>ETG.1000.4</td><td>§6.6–6.8</td><td>FMMU / SM / DC 寄存器</td></tr><tr><td>7</td><td>ETG.1500</td><td>§5</td><td>主站能力边界</td></tr><tr><td>8</td><td>ETG.2000 / 2001</td><td>全</td><td>ESI 的每个元素</td></tr><tr><td>9</td><td>ETG.2200</td><td>Section I</td><td>工程落地视角</td></tr><tr><td>10</td><td>ETG.7000.2</td><td>全</td><td>验收条件</td></tr></tbody></table></div>
+<hr>
+<h2 id="t-10-常见误解清单">10. 常见误解清单</h2>
+<div class="scroll"><table class="tbl"><thead><tr><th>误解</th><th>事实</th></tr></thead><tbody><tr><td>"EtherCAT 是请求-响应式总线"</td><td>一帧穿过所有从站，从站就地读写；没有逐站请求</td></tr><tr><td>"从站收到帧才处理"</td><td>ESC 边收边转发，处理与转发同时进行</td></tr><tr><td>"WKC 对就说明数据对"</td><td>WKC 只证明有从站处理了，不证明数据内容正确</td></tr><tr><td>"站地址就是物理位置"</td><td>站地址是主站分配的；物理位置只用于上电枚举</td></tr><tr><td>"DC 就是 NTP 对时"</td><td>DC 是硬件时钟同步 + SYNC 脉冲，精度在纳秒级</td></tr><tr><td>"ESI 里写了就行"</td><td>固件对象字典、SII、ESI 三者必须一致</td></tr><tr><td>"周期越短越好"</td><td>受帧长、从站数、主站软件开销约束；先算预算再定周期</td></tr><tr><td>"EtherCAT 需要交换机"</td><td>不需要；它是环/线型，从站自带转发</td></tr></tbody></table></div>
+<hr>
+<h2 id="t-附录-A-寄存器速查">附录 A：寄存器速查</h2>
+<div class="scroll"><table class="tbl"><thead><tr><th>地址</th><th>名称</th><th>说明</th></tr></thead><tbody><tr><td>0x0000</td><td>Type</td><td>ESC 类型/端口数</td></tr><tr><td>0x0004</td><td>FMMU 数量</td><td>最多 16</td></tr><tr><td>0x0005</td><td>SyncManager 数量</td><td>通常 4–8</td></tr><tr><td>0x0010</td><td>站地址</td><td>Configured Station Address</td></tr><tr><td>0x0012</td><td>站别名</td><td>Station Alias</td></tr><tr><td>0x0120</td><td>AL Control</td><td>bit0–3 State，bit4 ErrInd，bit6 Ack</td></tr><tr><td>0x0130</td><td>AL Status</td><td>bit0–3 State，bit4 Err，bit6 Ack</td></tr><tr><td>0x0134</td><td>AL Status Code</td><td>错误码</td></tr><tr><td>0x0500</td><td>SYNC0</td><td>周期/相位/脉宽</td></tr><tr><td>0x0600+16n</td><td>FMMU n</td><td>逻辑→物理映射</td></tr><tr><td>0x0800+8n</td><td>SyncManager n</td><td>物理地址/长度/控制/状态/激活</td></tr><tr><td>0x0900</td><td>DC 系统时间</td><td>64 位 ns</td></tr><tr><td>0x0910</td><td>DC 接收时间</td><td>端口 0 SOF 时刻</td></tr><tr><td>0x0920</td><td>DC 偏移</td><td>本地 = 系统 + 偏移</td></tr><tr><td>0x0928</td><td>DC 漂移</td><td>ARMW/FRMW 补偿</td></tr><tr><td>0x0980</td><td>接收时间差</td><td>传播延时测量</td></tr><tr><td>0x0C00</td><td>DC 激活</td><td>SYNC0/1 使能</td></tr><tr><td>0x0F00</td><td>EEPROM 接口</td><td>读写 SII</td></tr></tbody></table></div>
+<h2 id="t-附录-B-AL-Status-Code-速查">附录 B：AL Status Code 速查</h2>
+<div class="scroll"><table class="tbl"><thead><tr><th>码</th><th>含义</th></tr></thead><tbody><tr><td>0x0000</td><td>无错误</td></tr><tr><td>0x0011</td><td>请求了非法状态迁移</td></tr><tr><td>0x0012</td><td>未知状态</td></tr><tr><td>0x0013</td><td>不支持 BOOT</td></tr><tr><td>0x0016</td><td>邮箱 SM 配置不匹配</td></tr><tr><td>0x0017</td><td>过程数据 SM 配置不匹配</td></tr><tr><td>0x001D</td><td>输出配置错误</td></tr><tr><td>0x001E</td><td>输入配置错误</td></tr><tr><td>0x001F</td><td>看门狗触发</td></tr><tr><td>0x0024</td><td>无有效输入数据</td></tr><tr><td>0x0025</td><td>无有效输出数据</td></tr><tr><td>0x0026</td><td>同步错误</td></tr><tr><td>0x0029</td><td>DC 同步错误</td></tr><tr><td>0x0030</td><td>无效的 DC 配置</td></tr><tr><td>0x0033</td><td>邮箱看门狗</td></tr></tbody></table></div>
+<p>完整码表见 ETG.1020 §4。</p>
+<hr>
+<h2 id="t-附录-C-本地文档清单">附录 C：本地文档清单</h2>
+<div class="scroll"><table class="tbl"><thead><tr><th>编号</th><th>标题</th><th>版本</th><th>访问</th></tr></thead><tbody><tr><td>ETG.1000.1</td><td>Overview</td><td>1.0.4</td><td>会员</td></tr><tr><td>ETG.1000.2</td><td>Physical Layer</td><td>1.0.4</td><td>会员</td></tr><tr><td>ETG.1000.3</td><td>DLL Services</td><td>1.0.4</td><td>会员</td></tr><tr><td>ETG.1000.4</td><td>DLL Protocols</td><td>1.0.4</td><td>会员</td></tr><tr><td>ETG.1000.5</td><td>AL Services</td><td>1.0.4</td><td>会员</td></tr><tr><td>ETG.1000.6</td><td>AL Protocols</td><td>1.0.4</td><td>会员</td></tr><tr><td>ETG.1020</td><td>Protocol Enhancements</td><td>1.6.0</td><td>会员</td></tr><tr><td>ETG.1500</td><td>Master Classes</td><td>1.0.2</td><td>免费</td></tr><tr><td>ETG.1510</td><td>Master Diagnosis Interface</td><td>1.0.0</td><td>会员</td></tr><tr><td>ETG.2000</td><td>ESI Specification</td><td>1.0.18</td><td>会员</td></tr><tr><td>ETG.2001</td><td>ESI Annotation</td><td>1.1.1</td><td>会员</td></tr><tr><td>ETG.2010</td><td>SII</td><td>1.0.3</td><td>会员</td></tr><tr><td>ETG.2200</td><td>SubDevice Implementation Guide</td><td>3.2.3</td><td>免费</td></tr><tr><td>ETG.7000.2</td><td>Conformance Test Record</td><td>1.2.11</td><td>会员</td></tr><tr><td>ETG.7000.4</td><td>Test Record Guideline</td><td>1.0.0</td><td>免费</td></tr></tbody></table></div>
+<hr>
+<p>*本手册是学习索引，不复制规范原文；引用条款请以 <code>etg_doc/</code> 中的官方 PDF 为准。*</p>
+        </article>
+      </div>
+      <footer class="end">
+        <a href="index.html">← 回到总览</a>
+        <span>生成自 docs/guide.md · 用 .tools/build_guide.py 重新编译</span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/ec-core.js"></script>
+<script>
+const { renderShell } = EC_UI;
+renderShell({ active: 'guide', crumbs: ['学习站', '参考', '学习手册'], title: '通读版' });
+
+/* 目录高亮 */
+const links = [...document.querySelectorAll('.toc a')];
+const heads = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+function spy() {
+  let idx = 0;
+  heads.forEach((h, i) => { if (h.getBoundingClientRect().top < 120) idx = i; });
+  links.forEach((a, i) => a.classList.toggle('on', i === idx));
+}
+document.addEventListener('scroll', spy, { passive: true });
+spy();
+</script>
+<div class="selfcheck sc-idle" id="selfcheck" data-state="idle" role="status" aria-live="polite" tabindex="0"
+     title="脚本未执行：若通过 file:// 打开，请确认 assets/js/ec-core.js 存在；否则按 F12 查看控制台">
+  <span class="sc-dot"></span><span class="sc-text">脚本未执行</span>
+</div>
+
+</body>
+</html>

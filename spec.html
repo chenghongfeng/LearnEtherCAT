@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>规范地图 · EtherCAT 可视化</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1c26'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='none' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='11' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3EEC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+<style>
+  .maprow{cursor:pointer}
+  .maprow.on td{background:#122536!important}
+  .filecell{font-family:var(--mono);font-size:11px;color:var(--text-faint);word-break:break-all;max-width:280px}
+  .chip{display:inline-block;font-size:11px;font-family:var(--mono);border:1px solid var(--line);
+        border-radius:6px;padding:1px 6px;background:#0a121a;color:var(--text-dim);margin:1px 2px}
+  .coverage td{text-align:center;font-family:var(--mono);font-size:11px}
+  .cov{color:#4ade80}.nocov{color:#2b3a4a}
+  .legend-spec{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--text-dim);margin:8px 0}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="side" id="side-slot"></div>
+  <div class="main">
+    <div class="topbar" id="top-slot"></div>
+    <div class="wrap">
+
+      <div class="page-head">
+        <div class="eyebrow">etg_doc/ · 本地规范索引</div>
+        <h1>规范地图 <small>每个数字回到哪一页</small></h1>
+        <p class="lede">
+          本站所有结论都来自 <code class="mono">etg_doc/</code> 下的官方文档。下表给出：文档编号、版本、访问级别、
+          本地路径、关键章节，以及它被哪个可视化模块使用。点一行可以展开细节。
+        </p>
+      </div>
+
+      <div class="grid g4">
+        <div class="card"><div class="kpi"><b id="k-docs">—</b><span>份文档</span></div></div>
+        <div class="card"><div class="kpi"><b id="k-pages">—</b><span>总页数</span></div></div>
+        <div class="card"><div class="kpi"><b id="k-free">—</b><span>公网可下</span></div></div>
+        <div class="card"><div class="kpi"><b id="k-mod">—</b><span>可视化模块</span></div></div>
+      </div>
+
+      <div class="toolbar" style="margin-top:18px">
+        <div class="seg" id="filter">
+          <button data-f="all" class="on">全部</button>
+          <button data-f="core">核心协议</button>
+          <button data-f="slave">从站</button>
+          <button data-f="master">主站</button>
+          <button data-f="free">仅免费</button>
+        </div>
+        <div class="spacer"></div>
+        <input id="q" class="btn sm" placeholder="搜索编号 / 标题…" style="min-width:220px;font-family:var(--sans)">
+      </div>
+
+      <div class="scroll">
+        <table class="tbl" id="spec-tbl"></table>
+      </div>
+
+      <h2>规范 → 可视化：内容对照</h2>
+      <p class="lede">左列是文档条款，右列是它在哪一页被画出来。找不到对应行的条款，说明本站还没展开（欢迎补）。</p>
+      <div class="scroll">
+        <table class="tbl" id="link-tbl"></table>
+      </div>
+
+      <h2>覆盖矩阵</h2>
+      <p class="lede">每份文档对八个可视化模块的覆盖程度（● 直接支撑，○ 间接参考）。</p>
+      <div class="legend-spec">
+        <span><b class="cov">●</b> 直接</span><span><b class="nocov">○</b> 间接</span>
+      </div>
+      <div class="scroll">
+        <table class="tbl coverage" id="cov-tbl"></table>
+      </div>
+
+      <h2>关于版权与使用</h2>
+      <div class="note warn">
+        <b>这些 PDF 的版权属于 EtherCAT Technology Group（ETG）。</b>
+        本站只做本地索引与学习摘要，不复制原文、不重新分发。
+        标“会员”的文档需 ETG 会员账号下载；标“免费”的可在 ETG 下载页公开获取。
+        对外分享时请只分享本站代码与链接，不要打包 <code class="mono">etg_doc/</code>。
+      </div>
+
+      <footer class="end">
+        <a href="dc.html">← 分布式时钟</a>
+        <span><a href="index.html">回到总览 ↑</a></span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/ec-core.js"></script>
+<script>
+const { SPECS, SPEC_LINKS } = EC_DATA;
+const { renderShell, fmt } = EC_UI;
+
+renderShell({ active: 'spec', crumbs: ['学习站', '参考', '规范地图'], title: '17 份文档索引' });
+
+const MODULES = [
+  { id: 'index', name: '总览', href: 'index.html' },
+  { id: 'frame', name: '帧解剖', href: 'frame.html' },
+  { id: 'network', name: '网络实验室', href: 'network.html' },
+  { id: 'master', name: '主站视角', href: 'master.html' },
+  { id: 'al', name: '状态机/邮箱', href: 'al.html' },
+  { id: 'mbx', name: 'EoE/FoE/SoE', href: 'eoe-foe-soe.html' },
+  { id: 'slave', name: 'ESI/SII', href: 'slave.html' },
+  { id: 'dc', name: '分布式时钟', href: 'dc.html' },
+];
+
+/* 每份文档覆盖的模块 */
+const COVER = {
+  'ETG.1000.1': ['index'],
+  'ETG.1000.2': ['index'],
+  'ETG.1000.3': ['frame', 'network'],
+  'ETG.1000.4': ['frame', 'network', 'dc', 'al'],
+  'ETG.1000.5': ['master', 'al'],
+  'ETG.1000.6': ['al', 'master', 'mbx'],
+  'ETG.1020': ['al', 'slave'],
+  'ETG.1500': ['master', 'dc'],
+  'ETG.1510': ['master'],
+  'ETG.2000': ['slave'],
+  'ETG.2001': ['slave'],
+  'ETG.2010': ['slave'],
+  'ETG.2200': ['slave', 'index'],
+  'ETG.7000.2': ['slave'],
+  'ETG.7000.4': ['slave'],
+  'Poster': ['frame', 'network', 'al'],
+  'ESC': ['slave', 'index'],
+};
+
+const accessBadge = a => a === 'free'
+  ? '<span class="badge free">免费</span>' : '<span class="badge w">会员</span>';
+
+document.getElementById('k-docs').textContent = SPECS.length;
+document.getElementById('k-pages').textContent = SPECS.reduce((a, s) => a + s.pages, 0);
+document.getElementById('k-free').textContent = SPECS.filter(s => s.access === 'free').length;
+document.getElementById('k-mod').textContent = MODULES.length;
+
+let filter = 'all';
+let query = '';
+
+function match(s) {
+  if (filter === 'free' && s.access !== 'free') return false;
+  if (filter === 'core' && !['phy', 'dll', 'al'].includes(s.layer)) return false;
+  if (filter === 'slave' && !['slave', 'impl', 'conf'].includes(s.layer)) return false;
+  if (filter === 'master' && s.layer !== 'master') return false;
+  if (query) {
+    const hay = (s.id + ' ' + s.title + ' ' + s.cn).toLowerCase();
+    if (!hay.includes(query.toLowerCase())) return false;
+  }
+  return true;
+}
+
+function renderSpecs() {
+  const rows = SPECS.filter(match);
+  document.getElementById('spec-tbl').innerHTML = `
+    <thead><tr>
+      <th>编号</th><th>标题</th><th>版本</th><th>页数</th><th>访问</th><th>用于</th>
+    </tr></thead>
+    <tbody>${rows.map(s => {
+      const used = (COVER[s.id] || []).map(m => {
+        const mod = MODULES.find(x => x.id === m);
+        return `<a class="chip" href="${mod.href}">${mod.name}</a>`;
+      }).join('');
+      return `<tr class="maprow" data-id="${s.id}">
+        <td class="mono" style="color:#7dd3fc;white-space:nowrap">${s.id}</td>
+        <td><b>${s.title}</b><div class="faint small">${s.cn}</div></td>
+        <td class="mono small">${s.ver}</td>
+        <td class="num">${s.pages}</td>
+        <td>${accessBadge(s.access)}</td>
+        <td>${used || '<span class="faint small">—</span>'}</td>
+      </tr>
+      <tr class="detailrow" data-for="${s.id}" style="display:none">
+        <td colspan="6" style="background:#080d13">
+          <div class="grid g23" style="padding:6px 2px">
+            <div>
+              <div class="small faint" style="letter-spacing:.1em">为什么读它</div>
+              <div class="small" style="margin:4px 0 10px;color:#c9dcec">${s.why}</div>
+              <div class="small faint" style="letter-spacing:.1em">关键章节</div>
+              <div style="margin-top:4px">${s.chapters.map(c => `<span class="chip">${c}</span>`).join('')}</div>
+            </div>
+            <div>
+              <div class="small faint" style="letter-spacing:.1em">本地文件</div>
+              <a class="filecell" href="${s.file}" target="_blank" rel="noopener">${s.file}</a>
+              <div class="small muted" style="margin-top:8px">
+                点击在新标签页打开 PDF（需浏览器支持 PDF 预览）。
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>`;
+    }).join('')}</tbody>`;
+
+  document.querySelectorAll('.maprow').forEach(r => {
+    r.addEventListener('click', () => {
+      const id = r.dataset.id;
+      const detail = r.nextElementSibling;
+      const isOpen = detail.style.display !== 'none';
+
+      document.querySelectorAll('.maprow').forEach(x => x.classList.remove('on'));
+      document.querySelectorAll('.detailrow').forEach(d => d.style.display = 'none');
+
+      if (isOpen) return;
+      r.classList.add('on');
+      detail.style.display = '';
+    });
+  });
+}
+
+document.getElementById('filter').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#filter button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  filter = b.dataset.f;
+  renderSpecs();
+});
+document.getElementById('q').addEventListener('input', e => {
+  query = e.target.value;
+  renderSpecs();
+});
+renderSpecs();
+
+/* ---------------- 条款 → 可视化 ---------------- */
+document.getElementById('link-tbl').innerHTML = `
+  <thead><tr><th>文档</th><th>条款</th><th>内容</th><th>可视化位置</th></tr></thead>
+  <tbody>${SPEC_LINKS.map(l => {
+    const mod = l.page.split('#')[0].replace('.html', '');
+    const name = (MODULES.find(m => m.id === mod) || {}).name || l.page;
+    const anchor = l.page.includes('#') ? '#' + l.page.split('#')[1] : '';
+    return `<tr>
+      <td class="mono" style="color:#7dd3fc;white-space:nowrap">${l.spec}</td>
+      <td class="mono small">${l.chapter}</td>
+      <td>${l.topic}</td>
+      <td><a href="${l.page}">${name}${anchor ? ' ' + anchor : ''} →</a></td>
+    </tr>`;
+  }).join('')}</tbody>`;
+
+/* ---------------- 覆盖矩阵 ---------------- */
+document.getElementById('cov-tbl').innerHTML = `
+  <thead><tr><th style="text-align:left">文档</th>${MODULES.map(m => `<th>${m.name}</th>`).join('')}</tr></thead>
+  <tbody>${SPECS.map(s => {
+    const cov = COVER[s.id] || [];
+    return `<tr>
+      <td class="mono" style="text-align:left;color:#7dd3fc">${s.id}</td>
+      ${MODULES.map(m => `<td class="${cov.includes(m.id) ? 'cov' : 'nocov'}">${cov.includes(m.id) ? '●' : '○'}</td>`).join('')}
+    </tr>`;
+  }).join('')}</tbody>`;
+</script>
+
+<div class="selfcheck sc-idle" id="selfcheck" data-state="idle" role="status" aria-live="polite" tabindex="0"
+     title="脚本未执行：若通过 file:// 打开，请确认 assets/js/ec-core.js 存在；否则按 F12 查看控制台">
+  <span class="sc-dot"></span><span class="sc-text">脚本未执行</span>
+</div>
+
+</body>
+</html>
