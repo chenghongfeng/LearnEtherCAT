@@ -10,8 +10,8 @@ import { pathToFileURL } from 'node:url';
 
 const mode = process.argv[2] || 'file';
 const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const PAGES = ['index', 'frame', 'network', 'master', 'al', 'eoe-foe-soe', 'slave', 'dc', 'spec', 'guide'];
-const port = 9466;
+const PAGES = ['index', 'frame', 'network', 'master', 'al', 'eoe-foe-soe', 'slave', 'dc', 'spec', 'guide', 'glossary'];
+const port = 9722;
 
 const proc = spawn(CHROME, [
   '--headless=new', '--disable-gpu', '--hide-scrollbars', '--window-size=1440,1000',
@@ -117,6 +117,10 @@ for (const name of PAGES) {
       q('.maprow')?.click();
       out.click = document.querySelectorAll('.detailrow[style=""]').length;
       out.ok = out.rows === 17 && out.click === 1;
+    }
+    if (${JSON.stringify(name)} === 'glossary') {
+      out.terms = document.querySelectorAll('.g-term').length;
+      out.ok = out.terms >= 30;
     }
     if (${JSON.stringify(name)} === 'master') {
       out.svg = document.querySelectorAll('svg').length;

@@ -16,6 +16,7 @@ export const NAV = [
   { group: '参考' },
   { id: 'spec',     num: '08', href: 'spec.html',     title: '规范地图',     tag: 'ETG' },
   { id: 'guide',    num: '09', href: 'guide.html',    title: '学习手册',     tag: '通读' },
+  { id: 'glossary', num: '10', href: 'glossary.html', title: '术语表',       tag: 'KW' },
 ];
 
 export function renderShell({ active, crumbs = [], title = 'EtherCAT 可视化学习站', docCount = 17 }) {
@@ -190,6 +191,10 @@ const PAGE_CHECKS = {
     ['目录', () => document.querySelectorAll('.toc a').length >= 20],
     ['正文标题', () => document.querySelectorAll('article.doc h2').length >= 8],
   ],
+  glossary: [
+    ['术语卡片', () => document.querySelectorAll('.g-term').length >= 30],
+    ['搜索框', () => !!document.getElementById('g-search')],
+  ],
 };
 
 function selfCheckPageKey() {
@@ -329,4 +334,306 @@ if (typeof document !== 'undefined') {
   } else {
     setTimeout(boot, 0);
   }
+}
+
+/* =========================================================
+   术语关键词：自动给正文里的术语加下划线，悬停/点击弹出解释
+   ========================================================= */
+const KW_SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'PRE', 'CODE', 'TEXTAREA', 'SELECT', 'OPTION', 'A', 'BUTTON', 'H1', 'H2', 'H3']);
+const KW_SKIP_ZONES = '.kw, .nav, .side, .topbar, .toc, .crumbs, #kw-tip, .cell, .pkt, .mail, [data-nokw]';
+const KW_MAX_PER_RUN = 140;   // 单次扫描最多新增多少个高亮（性能保护）
+
+let KW_INDEX = null;
+let KW_BY_KEY = null;
+let kwObserver = null;
+let kwTimer = null;
+let kwActive = null;
+let kwPinned = null;
+let kwHideTimer = null;
+
+function kwInitData() {
+  if (KW_INDEX) return;
+  const list = (window.EC_DATA && window.EC_DATA.GLOSSARY) || [];
+  KW_BY_KEY = {};
+  KW_INDEX = [];
+  for (const g of list) {
+    KW_BY_KEY[g.k] = g;
+    const names = [g.t, ...(g.alias || [])].filter(Boolean);
+    for (const n of names) {
+      KW_INDEX.push({ key: g.k, needle: n, latin: /^[\x20-\x7e]+$/.test(n) });
+    }
+  }
+  KW_INDEX.sort((a, b) => b.needle.length - a.needle.length);
+}
+
+function kwBoundaryOk(text, at, len, latin) {
+  if (!latin) return true;
+  const before = at > 0 ? text[at - 1] : '';
+  const after = text[at + len] || '';
+  return !/[A-Za-z0-9_]/.test(before) && !/[A-Za-z0-9_]/.test(after);
+}
+
+function kwNextMatch(text, from) {
+  let best = null;
+  for (const item of KW_INDEX) {
+    let i = text.indexOf(item.needle, from);
+    while (i >= 0) {
+      if (kwBoundaryOk(text, i, item.needle.length, item.latin)) {
+        if (!best || i < best.start) {
+          best = { start: i, end: i + item.needle.length, key: item.key, text: item.needle };
+        }
+        break;
+      }
+      i = text.indexOf(item.needle, i + 1);
+    }
+  }
+  return best;
+}
+
+const KW_BLOCK_SEL = 'p, li, td, th, blockquote, section, article, header, footer';
+const KW_BLOCK_MAX = 8;
+const KW_BLOCK_PER_KEY = 1;
+const KW_BLOCK_USAGE = new WeakMap();
+
+function kwWrapNode(node, budget) {
+  const parent = node.parentElement;
+  if (!parent) return;
+  if (KW_SKIP_TAGS.has(parent.tagName)) return;
+  if (parent.closest(KW_SKIP_ZONES)) return;
+  const text = node.nodeValue;
+  if (!text || !text.trim()) return;
+
+  // 每个文本块（段落/单元格）自己计数：动态重渲染的新段落也能正常标注
+  const block = parent.closest(KW_BLOCK_SEL) || parent;
+  let usage = KW_BLOCK_USAGE.get(block);
+  if (!usage) {
+    usage = { total: 0, perKey: Object.create(null) };
+    KW_BLOCK_USAGE.set(block, usage);
+  }
+
+  let pos = 0;
+  let frag = null;
+  while (true) {
+    const m = kwNextMatch(text, pos);
+    if (!m) break;
+    if (!frag) frag = document.createDocumentFragment();
+    if (m.start > pos) frag.appendChild(document.createTextNode(text.slice(pos, m.start)));
+
+    const underCap = budget.total < budget.maxTotal
+      && usage.total < KW_BLOCK_MAX
+      && (usage.perKey[m.key] || 0) < KW_BLOCK_PER_KEY;
+    if (!KW_BY_KEY[m.key] || !underCap) {
+      frag.appendChild(document.createTextNode(text.slice(m.start, m.end)));
+      pos = m.end;
+      continue;
+    }
+    const span = document.createElement('span');
+    span.className = 'kw';
+    span.dataset.k = m.key;
+    span.textContent = m.text;
+    frag.appendChild(span);
+    usage.total++;
+    usage.perKey[m.key] = (usage.perKey[m.key] || 0) + 1;
+    budget.total++;
+    pos = m.end;
+  }
+  if (!frag) return;
+  if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+  node.parentNode.replaceChild(frag, node);
+}
+
+function kwWrapRoot(root, opts = {}) {
+  if (!root) return 0;
+  kwInitData();
+  if (!KW_INDEX || !KW_INDEX.length) return 0;
+  const budget = { total: 0, maxTotal: opts.maxTotal || KW_MAX_PER_RUN };
+  const active = kwActive;
+  const activeKey = active && active.dataset ? active.dataset.k : null;
+  const activeText = active ? active.textContent : null;
+  const activeInside = active && root.contains(active);
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(n) {
+      const p = n.parentElement;
+      if (!p) return NodeFilter.FILTER_REJECT;
+      if (KW_SKIP_TAGS.has(p.tagName)) return NodeFilter.FILTER_REJECT;
+      if (p.closest(KW_SKIP_ZONES)) return NodeFilter.FILTER_REJECT;
+      return n.nodeValue && n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(n => kwWrapNode(n, budget));
+
+  // 文本被重新包过之后，把正在显示的 tip 接到新的同名 span 上
+  if (activeInside && active && !active.isConnected) {
+    let alt = null;
+    if (activeKey) {
+      alt = [...root.querySelectorAll('.kw[data-k="' + activeKey + '"]')]
+        .find(el => el.textContent === activeText) || null;
+    }
+    if (alt) {
+      kwActive = alt;
+      if (kwPinned) kwPinned = alt;
+      alt.classList.add('kw-on');
+      const tip = document.getElementById('kw-tip');
+      if (tip && !tip.hidden) kwRenderTip(alt);
+    } else {
+      kwHide(true);
+    }
+  }
+  return budget.total;
+}
+
+function kwTipEl() {
+  let tip = document.getElementById('kw-tip');
+  if (tip) return tip;
+  tip = document.createElement('div');
+  tip.id = 'kw-tip';
+  tip.setAttribute('role', 'tooltip');
+  tip.hidden = true;
+  document.body.appendChild(tip);
+  tip.addEventListener('mouseenter', () => clearTimeout(kwHideTimer));
+  tip.addEventListener('mouseleave', () => kwScheduleHide());
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { kwPinned = null; kwHide(true); }
+  });
+  window.addEventListener('scroll', () => { if (!kwTipEl().hidden) kwPosition(); }, { passive: true });
+  window.addEventListener('resize', () => { if (!kwTipEl().hidden) kwPosition(); });
+  return tip;
+}
+
+function kwRenderTip(span) {
+  const g = KW_BY_KEY[span.dataset.k];
+  const tip = kwTipEl();
+  if (!g) return;
+  const rel = (g.rel || []).map(k => KW_BY_KEY[k]).filter(Boolean);
+  tip.innerHTML = `
+    <div class="kt-head"><b>${g.t}</b> <span class="kt-full">${g.full}</span></div>
+    <div class="kt-zh">${g.zh}</div>
+    <div class="kt-short">${g.short}</div>
+    <div class="kt-detail">${g.detail}</div>
+    <div class="kt-foot">
+      <span class="src">${g.src}</span>
+      ${rel.length ? `<span class="kt-rel">相关：${rel.map(r => `<a href="glossary.html#k-${r.k}">${r.t}</a>`).join(' · ')}</span>` : ''}
+      <a class="kt-more" href="glossary.html#k-${g.k}">术语表 →</a>
+    </div>`;
+  tip.hidden = false;
+  kwActive = span;
+  kwPosition();
+}
+
+function kwPosition() {
+  const tip = document.getElementById('kw-tip');
+  if (!tip || tip.hidden || !kwActive) return;
+  const r = kwActive.getBoundingClientRect();
+  const w = tip.offsetWidth;
+  const h = tip.offsetHeight;
+  let x = r.left + r.width / 2 - w / 2;
+  x = Math.max(10, Math.min(x, window.innerWidth - w - 10));
+  let y = r.top - h - 10;
+  if (y < 8) y = r.bottom + 10;
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+}
+
+function kwShow(span) {
+  clearTimeout(kwHideTimer);
+  kwRenderTip(span);
+}
+
+function kwScheduleHide() {
+  clearTimeout(kwHideTimer);
+  kwHideTimer = setTimeout(() => { if (!kwPinned) kwHide(); }, 180);
+}
+
+function kwHide(force) {
+  if (kwPinned && !force) return;
+  const tip = document.getElementById('kw-tip');
+  if (tip) { tip.hidden = true; tip.innerHTML = ''; }
+  if (kwActive) kwActive.classList.remove('kw-on');
+  kwActive = null;
+}
+
+function kwBind() {
+  document.addEventListener('mouseover', e => {
+    const span = e.target.closest && e.target.closest('.kw');
+    if (span && !span.contains(e.relatedTarget)) { span.classList.add('kw-on'); kwShow(span); }
+  });
+  document.addEventListener('mouseout', e => {
+    const span = e.target.closest && e.target.closest('.kw');
+    if (span && !span.contains(e.relatedTarget)) { span.classList.remove('kw-on'); kwScheduleHide(); }
+  });
+  document.addEventListener('focusin', e => {
+    const span = e.target.closest && e.target.closest('.kw');
+    if (span) kwShow(span);
+  });
+  document.addEventListener('click', e => {
+    const span = e.target.closest && e.target.closest('.kw');
+    if (span) {
+      e.preventDefault();
+      if (kwPinned === span) { kwPinned = null; kwHide(true); }
+      else { kwPinned = span; span.classList.add('kw-on'); kwShow(span); }
+      return;
+    }
+    if (kwPinned) { kwPinned = null; kwHide(true); }
+    else if (!e.target.closest || !e.target.closest('#kw-tip')) kwHide(true);
+  });
+}
+
+function kwObserverStart() {
+  if (kwObserver) return;
+  const root = document.querySelector('.wrap') || document.body;
+  kwObserver = new MutationObserver(() => {
+    clearTimeout(kwTimer);
+    kwTimer = setTimeout(() => {
+      kwWrapRoot(root, { maxTotal: 120, maxPerKey: 3 });
+    }, 140);
+  });
+  kwObserver.observe(root, { childList: true, subtree: true });
+}
+
+if (typeof window !== 'undefined') {
+  window.EC_KW = { wrap: kwWrapRoot };
+}
+
+export function initGlossary() {
+  kwInitData();
+  if (!KW_INDEX || !KW_INDEX.length) return { count: 0 };
+
+  const page = (location.pathname.split('/').pop() || 'index.html').replace(/\.html$/i, '') || 'index';
+  if (page === 'glossary') return { count: 0 };
+
+  kwBind();
+  const root = document.querySelector('.wrap');
+  kwWrapRoot(root, { maxTotal: 420, maxPerKey: 4 });
+  kwObserverStart();
+
+  try {
+    if (!sessionStorage.getItem('ec-kw-hint')) {
+      sessionStorage.setItem('ec-kw-hint', '1');
+      const hint = document.createElement('div');
+      hint.className = 'kw-hint';
+      hint.innerHTML = '<b>术语提示</b>：正文里带虚线下划线的词（例如 <span class="kw" data-k="adp">ADP</span>）可以悬停或点击，弹出它的解释与规范出处。';
+      hint.addEventListener('click', e => {
+        if (e.target.closest('.kw')) return;
+        hint.remove();
+      });
+      const head = document.querySelector('.wrap .page-head');
+      if (head) head.after(hint);
+    }
+  } catch (e) { /* file:// 下 sessionStorage 可能不可用，忽略 */ }
+
+  const live = document.querySelectorAll('.kw').length;
+  window.EC_GLOSSARY = { count: live, terms: KW_INDEX.length };
+  return { count: live };
+}
+
+/* 自动挂载：页面脚本执行完后加关键词 */
+if (typeof document !== 'undefined') {
+  const bootGlossary = () => setTimeout(() => {
+    try { initGlossary(); } catch (e) { /* 关键词失败不影响页面 */ }
+  }, 80);
+  if (document.readyState === 'complete') bootGlossary();
+  else window.addEventListener('load', bootGlossary, { once: true });
 }

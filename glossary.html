@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>术语表 · EtherCAT 可视化</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1c26'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='none' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='11' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3EEC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+<style>
+  .g-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0 6px}
+  .g-search{
+    flex:1 1 260px; min-width:220px;
+    background:#0a121a; border:1px solid var(--line); border-radius:10px;
+    padding:9px 12px; color:var(--text); font:13px var(--sans);
+  }
+  .g-search:focus{ outline:none; border-color:#2b6f97; box-shadow:0 0 0 3px rgba(56,189,248,.12); }
+  .g-chips{display:flex;gap:5px;flex-wrap:wrap}
+  .g-chips button{
+    font:600 11.5px var(--sans); color:var(--text-dim); background:#0a121a;
+    border:1px solid var(--line); border-radius:999px; padding:6px 12px; cursor:pointer;
+  }
+  .g-chips button:hover{ border-color:#2b6f97; color:#dff4ff; }
+  .g-chips button.on{ background:#123448; border-color:#2b6f97; color:#eaf6ff; }
+  .g-count{font-size:11.5px;color:var(--text-faint);margin:2px 0 14px}
+  .g-count b{color:#9fe0ff;font-family:var(--mono)}
+
+  .g-list{display:grid;gap:10px}
+  .g-term{
+    border:1px solid var(--line); border-radius:12px; background:#0a121a;
+    padding:14px 16px; scroll-margin-top:70px;
+  }
+  .g-term:target,.g-term.hit{ border-color:#2b6f97; box-shadow:0 0 0 3px rgba(56,189,248,.12); }
+  .g-head{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+  .g-term h3{margin:0;font:700 16px var(--mono);color:#9fe0ff}
+  .g-full{font-size:11.5px;color:var(--text-faint)}
+  .g-zh{font-size:11.5px;color:#7dd3fc}
+  .g-grp{margin-left:auto;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);border:1px solid var(--line);border-radius:999px;padding:2px 8px}
+  .g-short{margin:9px 0 0;font-size:13.5px;color:#e6f3ff;font-weight:600;line-height:1.6}
+  .g-detail{margin:6px 0 0;font-size:12.5px;color:var(--text-dim);line-height:1.75}
+  .g-foot{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:10px;padding-top:8px;border-top:1px dashed #16222f;font-size:11px}
+  .g-rel{color:var(--text-faint)}
+  .g-rel a{color:#9fe0ff;text-decoration:none;border-bottom:1px dotted #3b6b8a}
+  .g-rel a:hover{color:#dff4ff}
+  .g-empty{padding:26px;text-align:center;color:var(--text-faint);font-size:13px;border:1px dashed var(--line);border-radius:12px}
+  @media (max-width:640px){ .g-grp{display:none} }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="side" id="side-slot"></div>
+  <div class="main">
+    <div class="topbar" id="top-slot"></div>
+    <div class="wrap">
+
+      <div class="page-head">
+        <div class="eyebrow">术语表 · ETG.1000 / ETG.1500 / ETG.2010</div>
+        <h1>关键词表 <small>一次把缩写说清楚</small></h1>
+        <p class="lede">
+          ADP、ADO、WKC、FMMU 这些缩写第一次看就是天书。这里按层归类，每条给出中英全称、一句话定义、
+          它在协议里干什么、以及出自哪份规范。正文里带<b>虚线下划线</b>的词都可以悬停查看。
+        </p>
+      </div>
+
+      <div class="g-bar">
+        <input class="g-search" id="g-search" type="search" placeholder="搜索：ADP / 工作计数器 / 邮箱 / 0x88A4 …（按 / 聚焦）" autocomplete="off">
+        <div class="g-chips" id="g-chips"></div>
+      </div>
+      <div class="g-count" id="g-count"></div>
+
+      <div class="g-list" id="g-list"></div>
+
+      <footer class="end">
+        <a href="index.html">← 总览</a>
+        <span>下一站：<a href="spec.html">规范地图 →</a></span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/ec-core.js"></script>
+<script>
+const { renderShell } = EC_UI;
+const GLOSSARY = EC_DATA.GLOSSARY;
+
+renderShell({ active: 'glossary', crumbs: ['学习站', '参考', '术语表'], title: 'ETG.1000 术语' });
+
+const GROUPS = [
+  { k: 'all', label: '全部' },
+  { k: 'link', label: '数据链路层' },
+  { k: 'al', label: '应用层' },
+  { k: 'dc', label: '分布式时钟' },
+  { k: 'master', label: '主站体系' },
+];
+const GROUP_LABEL = Object.fromEntries(GROUPS.map(g => [g.k, g.label]));
+
+let filter = { q: '', g: 'all' };
+
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function matches(t) {
+  if (filter.g !== 'all' && t.g !== filter.g) return false;
+  if (!filter.q) return true;
+  const q = filter.q.toLowerCase();
+  return [t.t, t.full, t.zh, t.short, t.detail, t.src, ...(t.alias || [])]
+    .join(' ').toLowerCase().includes(q);
+}
+
+function renderChips() {
+  const host = document.getElementById('g-chips');
+  host.innerHTML = GROUPS.map(g => {
+    const n = g.k === 'all' ? GLOSSARY.length : GLOSSARY.filter(t => t.g === g.k).length;
+    return `<button data-g="${g.k}" class="${filter.g === g.k ? 'on' : ''}">${g.label} <span class="faint">${n}</span></button>`;
+  }).join('');
+}
+
+function renderList() {
+  const list = GLOSSARY.filter(matches);
+  const host = document.getElementById('g-list');
+  document.getElementById('g-count').innerHTML =
+    `显示 <b>${list.length}</b> / ${GLOSSARY.length} 个词条` +
+    (filter.q ? ` · 关键词 “${esc(filter.q)}”` : '');
+
+  if (!list.length) {
+    host.innerHTML = '<div class="g-empty">没有匹配的词条，换个关键词试试（支持中文、英文缩写、规范号）。</div>';
+    return;
+  }
+
+  host.innerHTML = list.map(t => {
+    const rel = (t.rel || []).map(k => GLOSSARY.find(x => x.k === k)).filter(Boolean);
+    return `<article class="g-term" id="k-${t.k}" data-g="${t.g}" data-k="${t.k}">
+      <div class="g-head">
+        <h3>${esc(t.t)}</h3>
+        <span class="g-full">${esc(t.full)}</span>
+        <span class="g-zh">${esc(t.zh)}</span>
+        <span class="g-grp">${GROUP_LABEL[t.g] || t.g}</span>
+      </div>
+      <p class="g-short">${esc(t.short)}</p>
+      <p class="g-detail">${esc(t.detail)}</p>
+      <div class="g-foot">
+        <span class="src">${esc(t.src)}</span>
+        ${rel.length ? `<span class="g-rel">相关：${rel.map(r => `<a href="#k-${r.k}">${esc(r.t)}</a>`).join(' · ')}</span>` : ''}
+      </div>
+    </article>`;
+  }).join('');
+}
+
+function highlightHash() {
+  const id = location.hash.replace('#', '');
+  document.querySelectorAll('.g-term.hit').forEach(n => n.classList.remove('hit'));
+  if (!id) return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('hit');
+  setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 60);
+}
+
+document.getElementById('g-chips').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  filter.g = b.dataset.g;
+  renderChips();
+  renderList();
+});
+
+document.getElementById('g-search').addEventListener('input', e => {
+  filter.q = e.target.value.trim();
+  renderList();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== document.getElementById('g-search')) {
+    e.preventDefault();
+    document.getElementById('g-search').focus();
+  }
+});
+
+window.addEventListener('hashchange', highlightHash);
+
+renderChips();
+renderList();
+highlightHash();
+</script>
+
+<div class="selfcheck sc-idle" id="selfcheck" data-state="idle" role="status" aria-live="polite" tabindex="0"
+     title="脚本未执行：若通过 file:// 打开，请确认 assets/js/ec-core.js 存在；否则按 F12 查看控制台">
+  <span class="sc-dot"></span><span class="sc-text">脚本未执行</span>
+</div>
+
+</body>
+</html>

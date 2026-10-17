@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const url = pathToFileURL(path.resolve('frame.html')).href;
-const port = 9477;
+const port = 9724;
 const proc = spawn(CHROME, [
   '--headless=new', '--disable-gpu', '--window-size=1440,1000',
   `--remote-debugging-port=${port}`, `--user-data-dir=${path.resolve('.tmp_fi')}`, 'about:blank',

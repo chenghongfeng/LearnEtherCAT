@@ -10,7 +10,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const port = 9488;
+const port = 9723;
 
 // 造一个“没有脚本”的页面
 const src = fs.readFileSync('frame.html', 'utf8');

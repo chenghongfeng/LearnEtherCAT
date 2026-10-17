@@ -40,7 +40,7 @@ node .tools/serve.mjs 4173
 | # | 页面 | 你会看到什么 |
 |---|---|---|
 | 00 | `index.html` | 三层协议栈（可点，联动规范）、学习顺序、本地资料清单 |
-| 01 | `frame.html` | 整帧逐字节/逐位拆解；点任意位可翻转并实时重算；15 条命令码；WKC 怎么累加；PDU 构造器 |
+| 01 | `frame.html` | 6 步引导式拆解（高亮+讲解）；可点击的帧头 / 10 字节 PDU 头，改长度会演示错位；命令 2 维矩阵；WKC 逐从站账本；PDU 构造器；4 题小测 |
 | 02 | `network.html` | 发一帧穿过 5 个从站：APRD/FPRD/BRD/LRW 四种场景、FMMU 覆盖图、时延预算计算器 |
 | 03 | `master.html` | ETG.1500 的 27 项 Class A/B 能力矩阵、11 步启动时序、周期时间线、主站诊断对象 0x8nnn/0x9nnn/0xAnnn |
 | 04 | `al.html` | ESM 五态状态机（可点击迁移、AL Control/Status 位图、错误场景）、邮箱头 + CoE 头、SDO 快速/分段/CA/Emergency 报文 |
@@ -49,6 +49,31 @@ node .tools/serve.mjs 4173
 | 07 | `dc.html` | 分布式时钟：晶振漂移、ARMW 补偿、SYNC0 时序；DC 寄存器速查；四个常见坑 |
 | 08 | `spec.html` | 17 份本地文档索引：版本、访问级别、路径、关键章节、被哪个模块使用；条款→页面对照；覆盖矩阵 |
 | 09 | `guide.html` | 《EtherCAT 学习手册》通读版（由 `docs/guide.md` 编译） |
+| 10 | `glossary.html` | 49 个术语的英文全称、中文名、一句话定义、详细解释、规范出处与相关词；支持搜索与分组 |
+
+---
+
+## 术语表与关键词弹窗
+
+第一次看到 ADP、ADO、WKC、FMMU 这些缩写，基本等于看天书。现在：
+
+- **正文自动标注**：页面加载后，正文里的术语会被加上虚线下划线（同一段里每个词只标 1 处，避免满屏都是线）。
+- **悬停/点击弹窗**：显示英文全称、中文名、一句话定义、详细解释、规范出处、相关词，以及“术语表 →”入口。
+- **独立术语表页**：`glossary.html` 收录 49 条，按数据链路层 / 应用层 / 分布式时钟 / 主站体系分组，支持中英文搜索与 `#k-adp` 锚点定位。
+
+![关键词弹窗](docs/assets/kw-tip.png)
+
+![术语表](docs/assets/glossary.png)
+
+实现要点：
+
+- 术语数据在 `assets/js/data.js` 的 `GLOSSARY`（单一事实来源），弹窗与术语表页都读它。
+- 扫描与包装在 `assets/js/ui.js` 的 `initGlossary()`：跳过 `pre/code/script`、导航、帧条格子等区域；
+  按“段落/单元格”为块计数（每块最多 8 处、每个词 1 处），所以动态重渲染的段落也能正常标注。
+- 动态区域（导览文案、检查器）在渲染后调用 `window.EC_KW.wrap(el)` 立即标注；
+  其余内容由 `MutationObserver` 兜底补标。
+- 加一条术语只需要往 `GLOSSARY` 里加对象：`k` 键、`t` 缩写、`full` 全称、`zh` 中文、`short` 一句话、
+  `detail` 详细解释、`src` 规范出处、`rel` 相关词、`alias` 可匹配的别名。
 
 ---
 
@@ -83,11 +108,11 @@ node .tools/check_selfcheck.mjs
 ```
 LearnEtherCAT/
 ├── index.html / frame.html / network.html / master.html
-├── al.html / eoe-foe-soe.html / slave.html / dc.html / spec.html / guide.html
+├── al.html / eoe-foe-soe.html / slave.html / dc.html / spec.html / guide.html / glossary.html
 ├── assets/
 │   ├── css/style.css               # 全站样式（暗色工业风）
-│   ├── js/data.js                  # 规范索引、命令码、ESM、寄存器、能力矩阵…（源文件）
-│   ├── js/ui.js                    # 导航壳、提示气泡、小工具（源文件）
+│   ├── js/data.js                  # 规范索引、命令码、ESM、寄存器、能力矩阵、术语表…（源文件）
+│   ├── js/ui.js                    # 导航壳、提示气泡、自检徽标、关键词引擎（源文件）
 │   ├── js/ec-core.js               # 上面两者合并出的 classic 包（生成物，页面实际加载）
 │   └── data/esi-examples.json      # 由真实 ESI XML 生成的精简树
 ├── docs/guide.md                   # 学习手册源文件
@@ -105,6 +130,11 @@ LearnEtherCAT/
     ├── verify_all.mjs              # 真实 Chrome 全站回归（file:// 与 http://）
     ├── check_selfcheck.mjs         # 自检徽标正/负用例
     ├── check_frame_interactions.mjs# frame.html 交互专项
+    ├── check_frame_v2.mjs          # frame.html 引导/矩阵/掉线/小测专项
+    ├── check_glossary.mjs          # 术语表与关键词弹窗专项
+    ├── check_kw_tour.mjs           # 导览切步后的关键词回归
+    ├── shot_clip.mjs               # 长页面按纵向区间截图
+    ├── shot_keyword.mjs            # 关键词弹窗截图（用于 README）
     └── check_file_proto.mjs        # 单独验证 file:// 下脚本是否执行
 ```
 
@@ -154,11 +184,20 @@ node .tools/verify_all.mjs http
 # frame.html 专项：场景按钮 / 命令 chips / LEN、IRQ 滑块 / 帧单元点击
 node .tools/check_frame_interactions.mjs
 
+# frame.html 新版：导览、长度错位、命令矩阵、位翻转、模拟掉线、小测
+node .tools/check_frame_v2.mjs
+
 # 自检徽标：正常页 ok + 无脚本页保持“脚本未执行”
 node .tools/check_selfcheck.mjs
+
+# 术语表与关键词弹窗：正文标注数、悬停内容、点击固定、搜索与分组
+node .tools/check_glossary.mjs
+
+# 导览每一步的关键词标注 + 切步后真实悬停
+node .tools/check_kw_tour.mjs
 ```
 
-当前 10 个页面在 jsdom 与 Chrome 下均为 0 runtime error；`frame.html` 渲染 13 个帧单元 + 96 个位；
+当前 11 个页面在 jsdom 与 Chrome 下均为 0 runtime error；`frame.html` 渲染 13 个帧单元 + 96 个位；
 `slave.html` 渲染 697 个 ESI 节点；`spec.html` 渲染 73 行；`guide.html` 渲染 102 行表格。
 
 ---
