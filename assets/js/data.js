@@ -433,7 +433,7 @@ export const GLOSSARY = [
   {
     k: 'len', t: 'LEN', full: 'Length', zh: '数据长度', g: 'link',
     short: 'PDU 头里的 11 位字段：数据区字节数，最大 2047。',
-    detail: '只数数据区，不含 10 字节头和 2 字节 WKC。超过 2047 字节必须拆成多个 PDU，用 NEXT 串起来。同一个 16 位字里还挤着 3 位保留、C 位和 NEXT 位。',
+    detail: '只数数据区，不含 10 字节头和 2 字节 WKC。超过 2047 字节必须拆成多个 PDU，用 NEXT 串起来。同一个 16 位字里还挤着 3 位保留、Circulated 位和 NEXT 位。',
     src: 'ETG.1000.4 Table 14', rel: ['pdu', 'next', 'cbit'],
     alias: ['数据长度', 'Length'],
   },
@@ -459,11 +459,11 @@ export const GLOSSARY = [
     alias: ['Next PDU'],
   },
   {
-    k: 'cbit', t: 'C 位', full: 'Circulating', zh: '绕环标志', g: 'link',
-    short: 'PDU 头的 1 位：表示帧已经绕环一圈回到主站。',
-    detail: '在线型拓扑里，帧从端口 0 进、端口 1 出，绕一圈回到主站。C 位用于检测环路是否闭合，也用于冗余拓扑判断。',
-    src: 'ETG.1000.4 Table 14', rel: ['next', 'len'],
-    alias: ['Circulating'],
+    k: 'cbit', t: 'Circulated', full: 'Circulating frame flag', zh: '绕环标志', g: 'link',
+    short: 'PDU 头的 1 位：置 1 表示这个 PDU 已经绕环过一次，不是首次经过。',
+    detail: '把它读成“第几遍”，而不是“回没回来”：线型拓扑下每一帧本来就绕一圈回到主站，回到主站是常态。Circulated=1 只是标记同一帧在环上又走了一遍——只有冗余环、或主站刻意让帧二次遍历时才置位，接收方据此把重复帧与新帧区分开，避免重复处理、避免 WKC 重复累计。规范里这个位写作 C（Circulating 的首字母），位置是 PDU 头 +6 那个 16 位字的 bit 14，和 NEXT（bit 15）相邻。',
+    src: 'ETG.1000.4 Table 14 / §5.4.1.2', rel: ['next', 'len', 'wkc'],
+    alias: ['Circulating frame', 'Circulating', '绕环标志', '绕环位'],
   },
   {
     k: 'onthefly', t: 'On-the-fly', full: 'Processing on the fly', zh: '边转发边处理', g: 'link',

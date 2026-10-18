@@ -444,7 +444,7 @@ function buildCells() {
       add({ f: 'adp', grp: 'pdu', n: 2, label: 'ADP', val: hex0x(p.adp, 4), tip: tipOf('adp', p) });
       add({ f: 'ado', grp: 'pdu', n: 2, label: 'ADO', val: hex0x(p.ado, 4), tip: tipOf('ado') });
     }
-    add({ f: 'len', grp: 'pdu', n: 2, label: 'LEN|C|NEXT', val: `${p.len} · C=${state.c} · N=${next}`, tip: tipOf('len', p) });
+    add({ f: 'len', grp: 'pdu', n: 2, label: 'LEN|Circulated|NEXT', val: `${p.len} · Circulated=${state.c} · N=${next}`, tip: tipOf('len', p) });
     add({ f: 'irq', grp: 'pdu', n: 2, label: 'IRQ', val: hex0x(p.irq, 4), tip: tipOf('irq') });
     add({
       f: 'data', grp: 'data', n: Math.max(p.len, 1), label: 'DATA',
@@ -473,7 +473,7 @@ function tipOf(field, p) {
     adp: '<b>ADP</b><div class="r">Table 14 · 2 B</div>位置寻址：每过一个从站减 1，减到 0 的执行；节点寻址：配置站地址或别名。',
     ado: '<b>ADO</b><div class="r">Table 14 · 2 B</div>从站内部物理内存/寄存器地址，如 0x0130 = AL Status。',
     adr: '<b>ADR</b><div class="r">Table 17 · 4 B</div>32 位逻辑地址，由各从站 FMMU 映射到物理地址；可同时命中多个从站。',
-    len: '<b>LEN : res : C : NEXT</b><div class="r">Table 14 · 2 B</div>LEN 11 位（数据字节数，≤2047）；C 表示帧已绕环一圈；NEXT=1 表示后面还有 PDU。',
+    len: '<b>LEN : res : Circulated : NEXT</b><div class="r">Table 14 · 2 B</div>LEN 11 位（数据字节数，≤2047）；Circulated=1 表示这个 PDU 已绕环过一次；NEXT=1 表示后面还有 PDU。',
     irq: '<b>IRQ</b><div class="r">Table 14 · 2 B</div>外部事件掩码后的 AL Event Request，用于从站主动“举手”。',
     data: '<b>DATA</b><div class="r">Table 14 · LEN B</div>读命令时从站把值填入，未命中的从站保持原值。',
     wkc: '<b>WKC</b><div class="r">Table 14 · 2 B</div>工作计数器：每个命中从站按读/写加 1，读写都命中加 2。',
@@ -545,7 +545,7 @@ function inspect(f) {
             kind === 'position' ? '每经一个从站减 1，0 命中' : '配置站地址 / Station Alias', 'Table 14–16'],
     ado:   ['ADO', '16 bit', '物理寄存器 / 内存地址', 'Table 14'],
     adr:   ['ADR', '32 bit', '逻辑地址', 'Table 17'],
-    len:   ['LEN | res | C | NEXT', '11+3+1+1 bit', 'LEN 数据长度；C 已绕环；NEXT 后面还有 PDU', 'Table 14'],
+    len:   ['LEN | res | Circulated | NEXT', '11+3+1+1 bit', 'LEN 数据长度；Circulated 已绕环；NEXT 后面还有 PDU', 'Table 14'],
     irq:   ['IRQ', '16 bit', '外部事件掩码', 'Table 14'],
     data:  ['DATA', p.len + ' B', '数据区，长度 = LEN', 'Table 14'],
     wkc:   ['WKC', '16 bit', '命中累加：读/写 +1，读写 +2', 'Table 14'],
@@ -558,7 +558,7 @@ function inspect(f) {
     adp: `<div class="hr"></div><div class="small muted">位置寻址时起始 ADP = <b>${state.adp}</b>；经过第 ${state.adp + 1} 个从站时归零并执行。</div>`,
     wkc: `<div class="hr"></div><div class="small muted">本帧实际 WKC = <b style="color:#86efac">${hit}</b>；期望值通常等于参与该地址的 FMMU 数（读写都做则 ×2）。</div>`,
     eclen: `<div class="hr"></div><div class="small muted">当前值 <b>${effectiveEcLen()}</b> B；11 位最大 2047 B。${state.ecLenManual != null ? '（手动值）' : '（自动计算）'}</div>`,
-    len: `<div class="hr"></div><div class="small muted">LEN=${p.len}，C=${state.c}，NEXT=${state.nextOverride ?? 0}。LEN 只数数据区，不含 10 B 头和 2 B WKC。</div>`,
+    len: `<div class="hr"></div><div class="small muted">LEN=${p.len}，Circulated=${state.c}，NEXT=${state.nextOverride ?? 0}。LEN 只数数据区，不含 10 B 头和 2 B WKC。</div>`,
   }[f] || '';
 
   box.innerHTML = `
@@ -768,7 +768,7 @@ function describeToggle(byte, bit, before, after) {
   if (byte === 6) return `LEN bit ${bit}：${flip}（数据长度现在 ${state.len} B）`;
   if (byte === 7) {
     if (bit <= 2) return `LEN bit ${8 + bit}：${flip}（数据长度现在 ${state.len} B）`;
-    if (bit === 6) return `C 位：${flip}（帧已绕环一圈）`;
+    if (bit === 6) return `Circulated 位：${flip}（该 PDU 已绕环过一次）`;
     if (bit === 7) return `NEXT 位：${flip}（${b1 ? '后面还有 PDU' : '本 PDU 是最后一个'}）`;
     return `保留位 ${bit}：${flip}（应保持 0）`;
   }
@@ -796,7 +796,7 @@ function renderHdrFields(bytes) {
       kind === 'logical' ? '32 bit' : '16 bit', false],
     ['ADO', kind === 'logical' ? '—' : hex0x(state.ado, 4), '物理寄存器/内存地址', '16 bit', false],
     ['LEN', String(len), '数据区字节数', '11 bit', len === 0],
-    ['C', String(C), '帧已绕环一圈', '1 bit', false],
+    ['Circulated', String(C), '该 PDU 已绕环过一次', '1 bit', false],
     ['NEXT', String(NEXT), '后面还有 PDU', '1 bit', false],
     ['IRQ', hex0x(state.irq, 4), '外部事件', '16 bit', false],
   ];
