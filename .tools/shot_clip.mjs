@@ -10,7 +10,7 @@ const [url, out, yArg, hArg, expr, wArg] = process.argv.slice(2);
 const W = Number(wArg || 1440);
 const y = Number(yArg || 0), h = Number(hArg || 900);
 const port = 9727;
-const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const CHROME = process.env.CHROME_BIN || '/usr/bin/google-chrome';
 
 const proc = spawn(CHROME, [
   '--headless=new', '--disable-gpu', '--hide-scrollbars', '--window-size=1440,1000',

@@ -63,12 +63,72 @@
       </div>
 
       <h2>覆盖矩阵</h2>
-      <p class="lede">每份文档对八个可视化模块的覆盖程度（● 直接支撑，○ 间接参考）。</p>
+      <p class="lede">每份文档对各可视化模块的覆盖程度（● 直接支撑，○ 间接参考）。</p>
       <div class="legend-spec">
         <span><b class="cov">●</b> 直接</span><span><b class="nocov">○</b> 间接</span>
       </div>
       <div class="scroll">
         <table class="tbl coverage" id="cov-tbl"></table>
+      </div>
+
+      <h2>还缺哪些文档</h2>
+      <p class="lede">
+        这 17 份 ETG 文档定义的是<b>对外可见行为</b>：帧格式、命令、寄存器语义、状态机。
+        凡涉及“芯片内部怎么实现、PDI 时序怎么排、这颗器件有什么坑”的内容，ETG 规范刻意不写，
+        留给厂商数据手册。所以按用途分两种情况：
+      </p>
+      <div class="grid g2">
+        <div class="card">
+          <h3><span class="badge free">够了</span> 理解原理 / 读懂别人写的从站</h3>
+          <p class="small muted">
+            ETG.1000.3 §4.7–4.9（寻址、FMMU、SM 概念）、ETG.1000.4 §4.3 与 §5（on the fly、十五条命令、WKC 规则）、
+            §6（全部寄存器语义）、§7（邮箱与缓冲访问）、ETG.1000.6（ESM 与邮箱）、ETG.1020（错误码）已足够。
+            本站 <a href="esc.html">ESC 内部原理</a> 就是只靠这批文档 + KickCAT 源码写成的。
+          </p>
+        </div>
+        <div class="card">
+          <h3><span class="badge e">不够</span> 自己实现 ESC / 写从站固件 / 调试硬件</h3>
+          <p class="small muted">
+            至少还需要一本 <b>ESC 数据手册</b>。ETG.2200 §1.1 自己就指向它：
+            “Section I of the Beckhoff EtherCAT SubDevice Controller Datasheet ET1100 contains a comprehensive
+            description of EtherCAT functionality… Section II (ESC register description) and section III
+            (hardware specification) provide more detailed information.”
+          </p>
+        </div>
+      </div>
+
+      <div class="scroll" style="margin-top:14px">
+        <table class="tbl">
+          <thead><tr><th>缺失文档</th><th>补什么</th><th>什么时候需要</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>ET1100 数据手册</b><br><span class="small faint">ET1810/1815/1820 同族</span></td>
+              <td>内部框图与时序、逐位寄存器、PDI 时序、EEPROM 访问时序、SYNC/LATCH 单元、电源与时钟要求、勘误清单</td>
+              <td><span class="badge e">写从站 / 调硬件</span></td>
+            </tr>
+            <tr>
+              <td><b>LAN9252 / XMC4800 手册</b></td>
+              <td>具体器件的 SPI 与并口 PDI 时序、寄存器差异、中断引脚——KickCAT 的示例从站正是这两颗</td>
+              <td><span class="badge w">照 KickCAT 做</span></td>
+            </tr>
+            <tr>
+              <td><b>FPGA IP 核手册</b></td>
+              <td>可配置项：FMMU/SM 数量、端口数、PDI 类型、DC 选项</td>
+              <td><span class="badge w">做 IP 核时</span></td>
+            </tr>
+            <tr>
+              <td><b>厂商 Errata</b></td>
+              <td>“规范这么写、这颗芯片实际不这样”的清单</td>
+              <td><span class="badge w">量产前</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note" style="margin-top:14px">
+        <b>顺带一提：</b>ETG.1000.4 里 <span class="mono">0x0C00–0x0FFF</span> 与 <span class="mono">0x0980</span> 之后的
+        SYNC/LATCH 区属于“DL-user 保留区”，规范只说“由器件定义”。本站采用的偏移（0x0981 激活、0x0990 启动时间、
+        0x09A0 周期）是 ET1100 系列的事实标准，其它厂商可能有差异——这也是必须配数据手册的原因之一。
       </div>
 
       <h2>关于版权与使用</h2>
@@ -100,6 +160,7 @@ const MODULES = [
   { id: 'network', name: '网络实验室', href: 'network.html' },
   { id: 'master', name: '主站视角', href: 'master.html' },
   { id: 'al', name: '状态机/邮箱', href: 'al.html' },
+  { id: 'esc', name: 'ESC 原理', href: 'esc.html' },
   { id: 'mbx', name: 'EoE/FoE/SoE', href: 'eoe-foe-soe.html' },
   { id: 'slave', name: 'ESI/SII', href: 'slave.html' },
   { id: 'dc', name: '分布式时钟', href: 'dc.html' },
@@ -109,21 +170,21 @@ const MODULES = [
 const COVER = {
   'ETG.1000.1': ['index'],
   'ETG.1000.2': ['index'],
-  'ETG.1000.3': ['frame', 'network'],
-  'ETG.1000.4': ['frame', 'network', 'dc', 'al'],
+  'ETG.1000.3': ['frame', 'network', 'esc'],
+  'ETG.1000.4': ['frame', 'network', 'dc', 'al', 'esc'],
   'ETG.1000.5': ['master', 'al'],
-  'ETG.1000.6': ['al', 'master', 'mbx'],
-  'ETG.1020': ['al', 'slave'],
+  'ETG.1000.6': ['al', 'master', 'mbx', 'esc'],
+  'ETG.1020': ['al', 'slave', 'esc'],
   'ETG.1500': ['master', 'dc'],
   'ETG.1510': ['master'],
   'ETG.2000': ['slave'],
   'ETG.2001': ['slave'],
   'ETG.2010': ['slave'],
-  'ETG.2200': ['slave', 'index'],
+  'ETG.2200': ['slave', 'index', 'esc'],
   'ETG.7000.2': ['slave'],
   'ETG.7000.4': ['slave'],
   'Poster': ['frame', 'network', 'al'],
-  'ESC': ['slave', 'index'],
+  'ESC': ['slave', 'index', 'esc'],
 };
 
 const accessBadge = a => a === 'free'

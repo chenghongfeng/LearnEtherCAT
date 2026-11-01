@@ -10,13 +10,14 @@ export const NAV = [
   { group: '主站 / 从站' },
   { id: 'master',   num: '03', href: 'master.html',   title: '主站视角',     tag: 'MainDevice' },
   { id: 'al',       num: '04', href: 'al.html',       title: '从站与状态机', tag: 'AL' },
-  { id: 'mbx',      num: '05', href: 'eoe-foe-soe.html', title: 'EoE/FoE/SoE', tag: '邮箱' },
-  { id: 'slave',    num: '06', href: 'slave.html',    title: 'ESI / SII',    tag: 'SubDevice' },
-  { id: 'dc',       num: '07', href: 'dc.html',       title: '分布式时钟',   tag: 'DC' },
+  { id: 'esc',      num: '05', href: 'esc.html',      title: 'ESC 内部原理',  tag: 'SubDevice' },
+  { id: 'mbx',      num: '06', href: 'eoe-foe-soe.html', title: 'EoE/FoE/SoE', tag: '邮箱' },
+  { id: 'slave',    num: '07', href: 'slave.html',    title: 'ESI / SII',    tag: 'SubDevice' },
+  { id: 'dc',       num: '08', href: 'dc.html',       title: '分布式时钟',   tag: 'DC' },
   { group: '参考' },
-  { id: 'spec',     num: '08', href: 'spec.html',     title: '规范地图',     tag: 'ETG' },
-  { id: 'guide',    num: '09', href: 'guide.html',    title: '学习手册',     tag: '通读' },
-  { id: 'glossary', num: '10', href: 'glossary.html', title: '术语表',       tag: 'KW' },
+  { id: 'spec',     num: '09', href: 'spec.html',     title: '规范地图',     tag: 'ETG' },
+  { id: 'guide',    num: '10', href: 'guide.html',    title: '学习手册',     tag: '通读' },
+  { id: 'glossary', num: '11', href: 'glossary.html', title: '术语表',       tag: 'KW' },
 ];
 
 export function renderShell({ active, crumbs = [], title = 'EtherCAT 可视化学习站', docCount = 17 }) {
@@ -170,6 +171,13 @@ const PAGE_CHECKS = {
   al: [
     ['ESM 状态图', () => !!document.querySelector('#esm-stage svg')],
     ['邮箱报文', () => (document.getElementById('mb-body')?.textContent || '').length > 100],
+  ],
+  esc: [
+    ['ESC 框图', () => document.querySelectorAll('#esc-svg .blk').length >= 8],
+    ['流水线', () => document.querySelectorAll('#pipe-steps .step').length >= 8],
+    ['内存地图', () => document.querySelectorAll('#memmap .seg').length >= 8],
+    ['寄存器表', () => (window.EC_DATA?.REGS?.length || 0) >= 40],
+    ['KickCAT 对照', () => document.querySelectorAll('#kc-table tbody tr').length >= 8],
   ],
   'eoe-foe-soe': [
     ['EoE 位图', () => document.querySelectorAll('#eoe-bits .bit').length === 32],

@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESC 内部原理 · EtherCAT 可视化</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1c26'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='none' stroke='%2338bdf8' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='11' font-weight='700' fill='%237dd3fc' text-anchor='middle'%3EEC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+<style>
+  .esc-stage{background:#070d13;border:1px solid var(--line);border-radius:16px;padding:6px}
+  .esc-stage svg{display:block;width:100%;height:auto}
+  .blk{cursor:pointer;outline:none}
+  .blk rect{transition:.16s}
+  .blk:hover rect{filter:brightness(1.55)}
+  .blk.on rect{fill:#13293b;stroke-width:2.4;stroke-opacity:1}
+  .blk.on .t1{fill:#fff}
+  .blk.on .t2{fill:#a9c2d6}
+  .blk text{pointer-events:none;user-select:none;
+            font-family:var(--sans);letter-spacing:0}
+  .esc-stage svg text{font-family:"DejaVu Sans","Noto Sans CJK SC","Liberation Sans","Microsoft YaHei",sans-serif;font-variant-ligatures:none}
+  .blk:focus-visible rect{stroke-dasharray:4 3}
+  .blk-detail{border:1px solid var(--line);border-radius:14px;background:#0b1420;padding:16px 18px;margin-top:14px;
+              display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:6px 26px;align-items:start}
+  .blk-detail .col-a{grid-row:1 / span 3}
+  @media (max-width:900px){ .blk-detail{grid-template-columns:minmax(0,1fr)} .blk-detail .col-a{grid-row:auto} }
+  .blk-detail h3{margin:2px 0 2px;font-size:16px}
+  .blk-detail .en{font:11px var(--mono);color:var(--text-faint);letter-spacing:.04em}
+  .blk-detail p{font-size:13px;color:#c6d6e6;margin:10px 0 0;line-height:1.75}
+  .blk-detail .meta{margin-top:12px;padding-top:10px;border-top:1px dashed #1b2a3a;font-size:11.5px;color:var(--text-dim);display:grid;gap:6px}
+  .blk-detail .meta b{color:#9fe0ff;font-weight:600}
+
+  .pipe{display:grid;gap:6px}
+  .step{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;
+        border:1px solid var(--line);border-radius:10px;padding:9px 12px;cursor:pointer;background:#0a121a}
+  .step:hover{border-color:#2b415a}
+  .step.on{border-color:#2b6f97;background:#102436}
+  .step .n{font:700 11px var(--mono);color:var(--text-faint);padding-top:2px}
+  .step.on .n{color:var(--master)}
+  .step .t{font-size:12.5px;color:#dceaf6;font-weight:600}
+  .step .d{font-size:12px;color:var(--text-dim);margin-top:3px;line-height:1.7;display:none}
+  .step.on .d{display:block}
+  .step .who{font:9.5px var(--mono);letter-spacing:.08em;color:#7dd3fc;border:1px solid #23415a;
+             border-radius:999px;padding:0 6px;margin-left:6px}
+  .logbox{background:#050b11;border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+          font:11.5px/1.85 var(--mono);color:#9fb4c8;max-height:280px;overflow:auto}
+  .logbox .k{color:#7dd3fc}
+  .logbox .g{color:#4ade80}
+  .logbox .r{color:#fb7185}
+  .logbox .y{color:#fbbf24}
+
+  .memmap{display:grid;gap:4px}
+  .seg{display:grid;grid-template-columns:118px 1fr 46px;gap:10px;align-items:center;
+       border:1px solid var(--line);border-left:3px solid #2b6f97;border-radius:8px;
+       padding:7px 10px;cursor:pointer;background:#0a121a}
+  .seg:hover{background:#101c28}
+  .seg.on{background:#12283a;border-left-color:var(--master)}
+  .seg .a{font:11px var(--mono);color:#7dd3fc;white-space:nowrap}
+  .seg .n{font-size:12px;color:#dceaf6}
+  .seg .n small{color:var(--text-faint);font-size:11px;display:block}
+  .seg .c{font:10.5px var(--mono);color:var(--text-faint);text-align:right}
+
+  .am-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:8px 0 14px}
+  .am-row label{font-size:11px;color:var(--text-faint);display:grid;gap:4px;white-space:nowrap;min-width:0}
+  .am-row input,.am-row select{background:#0a121a;border:1px solid var(--line);border-radius:7px;
+    color:#e6f3ff;padding:6px 8px;font:12px var(--mono);min-width:92px}
+  .hit{color:#4ade80;font-weight:700}
+  .miss{color:#3d4b5a}
+  .ticks{font-family:var(--mono);font-size:11px}
+  pre.code{background:#050b11;border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+    overflow:auto;font:11.5px/1.7 var(--mono);color:#b9cbdc;margin:10px 0}
+  pre.code .c{color:#5a6b7d}
+  pre.code .kw{color:#7dd3fc}
+  .fileref{font:11px var(--mono);color:#9fe0ff;word-break:break-all}
+  .mailbox{border:1px solid var(--line);border-radius:12px;background:#0a121a;padding:14px}
+  .mbox{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+  .mbox .cell2{border:1px solid #23415a;border-radius:9px;padding:9px 11px;background:#0c1721}
+  .mbox .cell2 b{display:block;font:11px var(--mono);color:#7dd3fc}
+  .mbox .cell2 span{font-size:11.5px;color:var(--text-dim)}
+  .state-chip{font:11px var(--mono);border:1px solid var(--line);border-radius:999px;padding:2px 10px}
+  .state-chip.full{color:#fbbf24;border-color:#5a4a1a;background:rgba(251,191,36,.08)}
+  .state-chip.empty{color:#4ade80;border-color:#1f4a35;background:rgba(74,222,128,.07)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="side" id="side-slot"></div>
+  <div class="main">
+    <div class="topbar" id="top-slot"></div>
+    <div class="wrap">
+
+      <div class="page-head">
+        <div class="eyebrow">ETG.1000.3 §4.7–4.9 · ETG.1000.4 §4.3 / §6 · ETG.2200 §3.2 · KickCAT EmulatedESC</div>
+        <h1>ESC 内部原理 <small>一帧是怎么在“从站控制器”里被顺手处理的</small></h1>
+        <p class="lede">
+          ESC（EtherCAT SubDevice Controller）常被说成“EtherCAT 的网卡”，但它其实是<b>一张内存图加几个状态机</b>：
+          端口把帧送进 EPU，EPU 边转发边按地址搬运数据、给 WKC 记账、顺手盖上时间戳，结果落在 DPRAM 里等本地 MCU 来取。
+          这一页把芯片拆成十个方块，逐块对着寄存器、规范和一份可运行的软件 ESC 实现看。
+        </p>
+      </div>
+
+      <div class="grid g4">
+        <div class="card"><div class="kpi"><b>3</b><span>种寻址方式</span></div></div>
+        <div class="card"><div class="kpi"><b>0x0FFF</b><span>寄存器区上界</span></div></div>
+        <div class="card"><div class="kpi"><b>60 KB</b><span>过程数据 RAM</span></div></div>
+        <div class="card"><div class="kpi"><b>15</b><span>EPU 处理的命令</span></div></div>
+      </div>
+
+      <div class="toolbar" style="margin-top:16px">
+        <a class="btn primary" href="#blocks">看内部框图 →</a>
+        <a class="btn" href="network.html">← 先看帧怎么穿过从站</a>
+        <a class="btn ghost" href="#docs">文档够不够？</a>
+      </div>
+
+      <!-- ============ 1 · 为什么要硬件 ============ -->
+      <h2 id="why">1 · 为什么必须是硬件：on the fly 的时延账</h2>
+      <p class="lede">
+        标准以太网交换机的“存储转发”要先收完整帧、校验、再发出去。100 个从站串成线，
+        每个都这么做一遍，一帧就要走 100 次“收满 + 发送”。EtherCAT 的做法是<b>边收边转</b>：
+        帧头刚过去，EPU 就已经把这条 PDU 处理完了，帧体不需要在 ESC 里停留。
+      </p>
+      <div class="card">
+        <div class="am-row">
+          <label>从站数量<input id="lt-n" type="number" min="2" max="512" step="1" value="100"></label>
+          <label>帧长（字节）<input id="lt-b" type="number" min="64" max="1500" step="1" value="128"></label>
+          <span class="small faint" style="padding-bottom:8px">（按 100 Mbit/s 计）</span>
+        </div>
+        <div id="lt-out"></div>
+        <p class="small faint" style="margin:10px 0 0">
+          每站转发延时取 300 ns（KickCAT 软件 ESC 的默认建模值 <code class="mono">forwarding_delay_{300ns}</code>；
+          实际 ASIC 在 100 ns–1 µs 量级）。帧时间 = 字节数 × 80 ns。
+        </p>
+      </div>
+
+      <div class="note" style="margin-top:14px">
+        <b>关键点：</b>ESC 处理的是<b>帧里的每一条 PDU</b>，不是整个帧。一条 APRD 只有 10 字节头 + 数据，
+        帧头一过，EPU 就已经知道“这条跟我有关还是无关”。所以延时随<b>从站数</b>线性增长，而不是随<b>帧长</b>。
+      </div>
+
+      <!-- ============ 2 · 内部框图 ============ -->
+      <h2 id="blocks">2 · 内部结构：十个方块</h2>
+      <p class="lede">
+        点任意方块看它在干什么、对应哪些寄存器、规范里在哪、以及 KickCAT 的软件 ESC 里是哪段代码。
+        数据通路是 <span class="mono">端口 0 → 自动转发器 → EPU → DPRAM → PDI</span>；
+        FMMU / SM / DC / SII / 看门狗 都是挂在这条通路两侧的“功能单元”。
+      </p>
+
+      <div class="esc-stage" id="esc-svg"></div>
+      <div class="blk-detail" id="blk-detail"></div>
+
+      <div class="note" style="margin-top:14px">
+        <b>为什么端口 0 一定在“上游”？</b> ETG.2200 §3.2 把 ESC 的帧处理叫“环岛（roundabout）”：
+        帧从端口 0 进来，在 EPU 里<b>只处理一次</b>，然后从 1/2/3 出去；从下游回来的帧只经过转发器，不再进 EPU。
+        所以每个从站对同一条 PDU 只会计一次 WKC——这正是 WKC 能用来判断“谁没响应”的前提。
+      </div>
+
+      <!-- ============ 3 · 一帧进站 ============ -->
+      <h2 id="pipeline">3 · 一帧进站：九个动作</h2>
+      <p class="lede">点步骤或按“下一步”，看这条 APRD 是怎么从线上走到 DPRAM、再带着 WKC 回到主站的。</p>
+
+      <div class="grid g23">
+        <div>
+          <div class="pipe" id="pipe-steps"></div>
+          <div class="toolbar">
+            <button class="btn sm" id="pipe-prev">← 上一步</button>
+            <button class="btn sm primary" id="pipe-next">下一步 →</button>
+            <button class="btn sm ghost" id="pipe-reset">重来</button>
+          </div>
+        </div>
+        <div>
+          <div class="logbox" id="pipe-log"></div>
+          <div class="card" style="margin-top:12px">
+            <div class="kv">
+              <span class="faint">当前 PDU</span><span class="mono">APRD · ADO=0x0130 · LEN=2</span>
+              <span class="faint">帧里的 ADP</span><span class="mono" id="pipe-adp">0xFFFF</span>
+              <span class="faint">累计 WKC</span><span class="mono" id="pipe-wkc">0</span>
+              <span class="faint">C 位</span><span class="mono" id="pipe-c">0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 4 · 寻址 ============ -->
+      <h2 id="addr">4 · 地址怎么匹配：三种寻址在 ESC 里的判定</h2>
+      <p class="lede">
+        PDU 头里的 32 位地址只有两种解释：<b>物理</b>（16 位站标识 + 16 位 ADO）或<b>逻辑</b>（32 位 ADR）。
+        物理再分位置寻址与节点寻址。下面三个从站位置固定、站地址固定、各有一段 FMMU 窗口，改参数看谁会被命中。
+      </p>
+
+      <div class="card">
+        <div class="am-row">
+          <label>命令
+            <select id="am-cmd">
+              <option value="APRD">APRD（位置读）</option>
+              <option value="APWR">APWR（位置写）</option>
+              <option value="APRW">APRW（位置读写）</option>
+              <option value="FPRD">FPRD（节点读）</option>
+              <option value="FPWR">FPWR（节点写）</option>
+              <option value="LRD">LRD（逻辑读）</option>
+              <option value="LRW">LRW（逻辑读写）</option>
+              <option value="BRD">BRD（广播读）</option>
+              <option value="BRW">BRW（广播读写）</option>
+            </select>
+          </label>
+          <label>目标第 k 站<input id="am-k" type="number" min="0" max="2" value="1"></label>
+          <label>节点地址<input id="am-sta" type="number" value="1002"></label>
+          <label>逻辑 ADR<input id="am-adr" value="0x1008"></label>
+          <label>LEN<input id="am-len" type="number" min="1" max="64" value="4"></label>
+        </div>
+        <div class="scroll">
+          <table class="tbl" id="am-tbl"></table>
+        </div>
+        <div id="am-out" class="small" style="margin-top:10px;color:#c6d6e6"></div>
+      </div>
+
+      <div class="note" style="margin-top:14px">
+        <b>位置寻址的“减 1”发生在每一站，包括没被选中的站。</b>主站要访问第 k 站，ADP 初值写成
+        <span class="mono">−k</span> 的补码（第 1 站就是 <span class="mono">0xFFFF</span>）；
+        帧每过一站 ADP 加 1，恰好加到 0 的那一站执行。ETG.1000.3 §4.8.3.2 的例子：访问第 10 站，起始值 <span class="mono">−9</span>。
+      </div>
+
+      <!-- ============ 5 · 内存地图 ============ -->
+      <h2 id="mem">5 · 内存地图：0x0000–0xFFFF</h2>
+      <p class="lede">
+        ESC 对外只有“一片 64 KB 的地址空间”。0x0000–0x0FFF 是寄存器（规范定义语义），
+        0x1000 起是过程数据 RAM（大小由 0x0006 声明，0–60 KB）。点一段看它下面有哪些寄存器。
+      </p>
+
+      <div class="grid g23">
+        <div class="memmap" id="memmap"></div>
+        <div>
+          <div class="toolbar" style="margin-top:0">
+            <span class="small faint" id="reg-title">全部寄存器</span>
+            <div class="spacer"></div>
+            <button class="btn sm ghost" id="reg-all">显示全部</button>
+          </div>
+          <div class="scroll" style="max-height:520px">
+            <table class="tbl" id="reg-tbl"></table>
+          </div>
+        </div>
+      </div>
+
+      <div class="note warn" style="margin-top:14px">
+        <b>一个容易踩的坑：</b>DC 的接收时间在 <span class="mono">0x0900–0x090F</span>（四个端口各 32 位），
+        系统时间是 <span class="mono">0x0910</span>，<span class="mono">0x0928</span> 是传输延时、<span class="mono">0x092C</span> 才是 PLL 误差。
+        EEPROM 接口在 <span class="mono">0x0500</span>，<span class="mono">0x0F00</span> 是数字 IO。
+        这些偏移在 ETG.1000.4 Table 31/33/37/60 里逐条给出。
+      </div>
+
+      <!-- ============ 6 · SyncManager ============ -->
+      <h2 id="sm">6 · SyncManager：两侧访问的闸门</h2>
+      <p class="lede">
+        DPRAM 是双口的，两侧都能读写，所以必须有人管“什么时候算写完”。SM 把内存切成一致区，
+        给每个区定方向、缓冲类型和“空/满”状态位。邮箱是最严格的一种：<b>写到最后一个字节才算满，读到最后一个字节才算空</b>。
+      </p>
+
+      <div class="grid g23">
+        <div class="mailbox">
+          <div style="display:flex;align-items:center;gap:10px">
+            <b style="font-size:13px">SM0（主站 → 从站 邮箱）</b>
+            <span class="spacer" style="flex:1"></span>
+            <span class="state-chip empty" id="mb-state">空</span>
+          </div>
+          <div class="mbox">
+            <div class="cell2"><b>ECAT 侧（主站）</b><span id="mb-ecat">空闲</span></div>
+            <div class="cell2"><b>PDI 侧（本地 MCU）</b><span id="mb-pdi">空闲</span></div>
+          </div>
+          <div class="toolbar" style="margin-bottom:0">
+            <button class="btn sm" id="mb-mwrite">主站写 8 B</button>
+            <button class="btn sm" id="mb-mread">主站读</button>
+            <button class="btn sm" id="mb-pread">本地读 8 B</button>
+            <button class="btn sm ghost" id="mb-reset">复位</button>
+          </div>
+        </div>
+        <div>
+          <div class="logbox" id="mb-log"></div>
+          <p class="small faint" style="margin-top:8px">
+            非法操作不会“覆盖”，而是返回失败让调用方下个周期再试——这正是邮箱不会撕裂的原因
+            （ETG.1000.4 §7.2）。
+          </p>
+        </div>
+      </div>
+
+      <h3 style="margin-top:22px">SM 控制字节怎么读</h3>
+      <div class="scroll">
+        <table class="tbl">
+          <thead><tr><th>位</th><th>含义</th><th>取值</th><th>典型用法</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">bit0–1</td><td>缓冲类型</td><td class="mono">0=三缓冲 / 2=邮箱</td><td>SM0/SM1 用 2，SM2/SM3 也用 2（PDO 常配 2 而非 0）</td></tr>
+            <tr><td class="mono">bit2–3</td><td>方向</td><td class="mono">0=主站读（输入） / 1=主站写（输出）</td><td>SM2 输出=0x64，SM3 输入=0x20</td></tr>
+            <tr><td class="mono">bit4</td><td>ECAT 事件使能</td><td class="mono">0/1</td><td>让主站的访问触发 0x0220 事件</td></tr>
+            <tr><td class="mono">bit5</td><td>PDI 事件使能</td><td class="mono">0/1</td><td>本地中断</td></tr>
+            <tr><td class="mono">bit6</td><td>看门狗触发</td><td class="mono">0/1</td><td>过程数据通道必须置 1</td></tr>
+            <tr><td class="mono">状态 bit0</td><td>邮箱满</td><td class="mono">0=空 / 1=满</td><td>读空邮箱、写满邮箱都会失败</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ============ 7 · DC ============ -->
+      <h2 id="dc">7 · DC 单元与 SYNC/LATCH</h2>
+      <p class="lede">
+        DC 的硬件部分只做三件事：<b>锁存接收时刻</b>、<b>维护一份可被修正的系统时间</b>、<b>按周期输出 SYNC0/SYNC1</b>。
+        测量与算法都在主站侧。下面是主站真正会写的那几笔（顺序取自 KickCAT 的 <span class="mono">Bus::enableDC()</span>）。
+      </p>
+
+      <div class="scroll">
+        <table class="tbl">
+          <thead><tr><th>#</th><th>主站动作</th><th>寄存器</th><th>ESC 里发生了什么</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td>广播写 1 字节</td><td class="mono">0x0900</td><td>所有从站把“本帧在本端口到达”的本地时刻锁进 0x0900–0x090C</td></tr>
+            <tr><td class="num">2</td><td>逐站读回四个端口的时间</td><td class="mono">0x0900 / 0x0904 / 0x0908 / 0x090C</td><td>主站用相邻端口之差算出链路延时并累加</td></tr>
+            <tr><td class="num">3</td><td>写滤波深度</td><td class="mono">0x0934 / 0x0935</td><td>设定 PLL 的滤波强度（0x0935=12 表示 2¹² 的滑动平均）</td></tr>
+            <tr><td class="num">4</td><td>写速度计数启动值</td><td class="mono">0x0930</td><td>复位控制环滤波器</td></tr>
+            <tr><td class="num">5</td><td>FRMW 反复投喂参考时间</td><td class="mono">0x0910</td><td>参考站读出系统时间，其余站写入并据此微调本地时钟</td></tr>
+            <tr><td class="num">6</td><td>写周期与起始时刻</td><td class="mono">0x09A0 / 0x0990</td><td>SYNC0 周期与第一个绝对触发时刻</td></tr>
+            <tr><td class="num">7</td><td>写激活位</td><td class="mono">0x0981 = 0x03</td><td>SYNC0 开始输出（bit0），并置循环运行位（bit1）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note" style="margin-top:14px">
+        <b>0x0980 之后不是 ETG 强制的。</b>ETG.1000.4 §6.8 只规定到 0x0935 与 0x0980 起的一段“DL-user 保留区”；
+        SYNC/LATCH 单元的具体寄存器布局是 ET1100 系列器件的事实标准，各家 ESC 可能略有差异——
+        这正是“只看 ETG 规范不够、还要看数据手册”的地方。<a href="dc.html">分布式时钟页</a>有完整的仿真。
+      </div>
+
+      <!-- ============ 8 · KickCAT ============ -->
+      <h2 id="kickcat">8 · 参考实现：KickCAT 的软件 ESC</h2>
+      <p class="lede">
+        KickCAT 仓库里有一份可以跑、可以调试的软件 ESC：<span class="mono">EmulatedESC</span> 实现寄存器、SM、FMMU、EEPROM 和 DC 时钟，
+        <span class="mono">EmulatedNetwork</span> 按真实端口顺序把若干软件 ESC 连成拓扑。主站开发阶段不必接硬件。
+      </p>
+
+      <h3>它的“内存图”就是那个寄存器结构体</h3>
+<pre class="code"><span class="c">// KickCAT/lib/slave/include/kickcat/ESC/EmulatedESC.h（节选，结构体是 __packed__）</span>
+uint8_t  type, revision;            <span class="c">// 0x0000 Type / 0x0001 Revision</span>
+uint16_t build;                     <span class="c">// 0x0002 Build</span>
+uint8_t  ffmus_supported;           <span class="c">// 0x0004 = 8</span>
+uint8_t  sync_managers_supported;   <span class="c">// 0x0005 = 8</span>
+uint8_t  ram_size;                  <span class="c">// 0x0006 = 60 (KB)</span>
+uint8_t  port_desc;                 <span class="c">// 0x0007 = 0x0f → 端口 0/1 为 MII</span>
+uint16_t esc_features;              <span class="c">// 0x0008 = 0x01cc</span>
+uint16_t station_address;           <span class="c">// 0x0010</span>
+uint16_t station_alias;             <span class="c">// 0x0012</span>
+uint32_t dl_control;                <span class="c">// 0x0100</span>
+uint16_t dl_status;                 <span class="c">// 0x0110</span>
+uint16_t al_control, al_status;     <span class="c">// 0x0120 / 0x0130</span>
+uint16_t al_status_code;            <span class="c">// 0x0134</span>
+uint32_t al_event_request;          <span class="c">// 0x0220</span>
+uint16_t watchdog_time_process_data;<span class="c">// 0x0420</span>
+fmmu::Register          fmmu[16];           <span class="c">// 0x0600</span>
+SyncManager::Register   sync_manager[16];   <span class="c">// 0x0800</span>
+uint8_t                 DC[0x100];          <span class="c">// 0x0900</span>
+uint8_t                 process_data_ram[0xf000]; <span class="c">// 0x1000，60 KB</span></pre>
+
+      <p class="small muted">
+        整个实现的核心技巧：<b>寄存器访问 = 结构体偏移访问</b>。因为结构体是 packed 的、字段顺序与地址顺序一致，
+        <span class="mono">read(0x0130, &amp;v, 2)</span> 直接就是 <span class="mono">memcpy(&amp;v, (uint8_t*)&amp;memory_ + 0x130, 2)</span>，
+        再叠加 SM 的访问权限检查。ECC 的“内存图”就这么一行代码落地了。
+      </p>
+
+      <h3>EPU 的核心：15 条命令的分发</h3>
+<pre class="code"><span class="c">// EmulatedESC.cc:479  processEcatRequest()</span>
+auto [position, offset] = extractAddress(header-&gt;address);
+switch (header-&gt;command)
+{
+    case Command::APRD:
+        <span class="kw">if</span> (position == 0) { processReadCommand(header, data, wkc, offset); }
+        ++position;
+        header-&gt;address = createAddress(position, offset);   <span class="c">// ADP += 1（等于“下一站再减 1”）</span>
+        <span class="kw">break</span>;
+
+    case Command::FPRD:
+        <span class="kw">if</span> (matchesConfiguredAddress(position)) { processReadCommand(...); }
+        <span class="kw">break</span>;                                              <span class="c">// 地址匹配才动手，不动地址</span>
+
+    case Command::BRD:                                       <span class="c">// 广播：数据按位或进帧</span>
+        processBroadcastReadCommand(header, data, wkc, offset);
+        ++position;
+        header-&gt;address = createAddress(position, offset);
+        <span class="kw">break</span>;
+
+    case Command::LRW:  { processLRW(header, data, wkc); <span class="kw">break</span>; }   <span class="c">// 交给 FMMU</span>
+}</pre>
+
+      <p class="small muted">
+        注意 <span class="mono">APRD</span> 里那句 <span class="mono">header-&gt;address = createAddress(position, offset)</span>：
+        从站不改“地址语义”，只是把 ADP 加 1 再写回帧。下一站看到的就少 1，减到 0 的那一站执行——
+        这就是位置寻址的全部秘密（ETG.1000.4 §5.4.1.2）。
+      </p>
+
+      <h3>WKC 记账与 SM 闸门</h3>
+<pre class="code"><span class="c">// 读写命令（LRW/APRW/BRW）：读 +1，写 +2</span>
+<span class="kw">if</span> (read &gt; 0)    { *wkc += 1; }
+<span class="kw">if</span> (written &gt; 0) { *wkc += 2; dcTimeLoopWrite(offset, header-&gt;len); }
+
+<span class="c">// 邮箱空的时候不许读、满的时候不许写（EmulatedESC.cc:218 computeInternalMemoryAccess）</span>
+<span class="kw">if</span> (<span class="kw">not</span> (sync.registers-&gt;status &amp; SM_STATUS_MAILBOX) &amp;&amp; (sync.registers-&gt;control &amp; 0x3))
+    <span class="kw">return</span> -EAGAIN;   <span class="c">// 邮箱空：本地侧还不能读</span>
+<span class="kw">if</span> ((sync.registers-&gt;status &amp; SM_STATUS_MAILBOX) &amp;&amp; (sync.registers-&gt;control &amp; 0x3))
+    <span class="kw">return</span> -EAGAIN;   <span class="c">// 邮箱满：主站侧还不能写</span></pre>
+
+      <div class="scroll" style="margin-top:16px">
+        <table class="tbl" id="kc-table">
+          <thead><tr><th>规范概念</th><th>KickCAT 里的位置</th><th>它怎么实现</th></tr></thead>
+          <tbody>
+            <tr><td>寄存器区（0x0000–0x0FFF）</td><td class="fileref">lib/slave/include/kickcat/ESC/EmulatedESC.h:63</td><td>一个 <span class="mono">__packed__</span> 结构体，字段顺序 = 地址顺序</td></tr>
+            <tr><td>DL 信息（ESC 身份证）</td><td class="fileref">EmulatedESC.cc:10-30</td><td>构造时写死 Type=0x04(IP Core)、8 个 FMMU/SM、60 KB、features=0x01cc</td></tr>
+            <tr><td>EPU / 命令分发</td><td class="fileref">EmulatedESC.cc:479 processEcatRequest()</td><td><span class="mono">switch(cmd)</span> 覆盖 15 条命令；APRD/BRD 顺手改 ADP</td></tr>
+            <tr><td>位置寻址</td><td class="fileref">EmulatedESC.cc:479</td><td>ADP 加到 0 的站执行；每站无条件 <span class="mono">++position</span></td></tr>
+            <tr><td>节点寻址 + 别名</td><td class="fileref">EmulatedESC.cc:465 matchesConfiguredAddress()</td><td>比对站地址；DL Control 的 bit24 置位时才比对别名</td></tr>
+            <tr><td>广播读（位或）</td><td class="fileref">EmulatedESC.cc:780 readOrIntoFrame()</td><td>读出的数据按字节 <span class="mono">|=</span> 进帧，而不是覆盖</td></tr>
+            <tr><td>FMMU 映射</td><td class="fileref">EmulatedESC.cc:878 configureFmmus() / copyFmmu()</td><td>字节对齐走快路径，非对齐逐位搬运</td></tr>
+            <tr><td>SM 一致性</td><td class="fileref">EmulatedESC.cc:841 configureSMs()、:218</td><td>激活位 + 控制字节决定读写方向；空/满用状态位判</td></tr>
+            <tr><td>看门狗</td><td class="fileref">EmulatedESC.cc:939 checkWatchdog()</td><td>有输出 FMMU 才计时；超时置 SAFEOP + Error Ind</td></tr>
+            <tr><td>DC 时钟</td><td class="fileref">EmulatedESC.cc:97 localClock()、:137 dcTimeLoopWrite()</td><td>晶振 ppm 漂移累加 + 限幅修正；可注入抖动</td></tr>
+            <tr><td>EEPROM / SII</td><td class="fileref">EmulatedESC.cc:71 loadEeprom()</td><td>读第 0 字得 ESC 配置、第 4 字得站别名；支持 RELOAD</td></tr>
+            <tr><td>网络拓扑与转发</td><td class="fileref">lib/slave/src/EmulatedNetwork.cc:328 route()</td><td>按端口 0→3→1→2 的真实顺序走，断线自动环回</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note" style="margin-top:14px">
+        <b>它和真芯片的差别（作者自己在注释里列了）：</b>没有中断、EEPROM 立即完成、DC 时间环用“限幅修正本地副本”近似而不是真调振荡器、
+        端口转发是软件调用而非流水线。所以它够用来验证主站的时序与错误处理，<b>不能</b>用来评估微秒级性能。
+      </div>
+
+      <!-- ============ 9 · 文档 ============ -->
+      <h2 id="docs">9 · 文档够不够？</h2>
+      <p class="lede">
+        结论先说：<b>讲清楚“ESC 怎么工作”够了；要动手实现或调试还不够。</b>
+        本地这 17 份 ETG 文档定义了 ESC 对外可见的行为契约，但没有一本描述芯片内部——
+        那属于厂商数据手册。
+      </p>
+
+      <h3>本地文档给到了什么</h3>
+      <div class="scroll">
+        <table class="tbl">
+          <thead><tr><th>文档</th><th>对 ESC 主题的贡献</th><th>够用程度</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">ETG.1000.3</td><td>§4.7 操作概览、§4.8 三种寻址 / FMMU / SM 概念、§4.9 完整/基本从站分类、§4.10 通信层结构</td><td><span class="badge free">概念够</span></td></tr>
+            <tr><td class="mono">ETG.1000.4</td><td>§4.3 on the fly 与环岛拓扑、§5.4 十五条命令与 WKC 规则、§6 全部寄存器语义（DL 信息/控制/状态、FMMU、SM、DC、SII、MII、看门狗）、§7 DL-user 内存与邮箱/缓冲访问</td><td><span class="badge free">行为契约够</span></td></tr>
+            <tr><td class="mono">ETG.1000.6</td><td>ESM 状态机、AL Control/Status 位定义、邮箱与 CoE</td><td><span class="badge free">状态机够</span></td></tr>
+            <tr><td class="mono">ETG.1020</td><td>AL Status Code 全表、SII 细节、协议增强</td><td><span class="badge free">错误码够</span></td></tr>
+            <tr><td class="mono">ETG.2200</td><td>Section I §3.2 帧处理顺序（环岛）、§4.4 ESC + PDI 选型、Section II 指向厂商产品与 ESC 总览</td><td><span class="badge w">工程视角，部分够</span></td></tr>
+            <tr><td class="mono">ESC_Overview.pdf</td><td>各厂商 ESC 的资源对比表：端口、DPRAM、SM/FMMU 数量、DC、PDI</td><td><span class="badge w">只够选型</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>还缺什么</h3>
+      <div class="scroll">
+        <table class="tbl">
+          <thead><tr><th>缺的文档</th><th>它能补上什么</th><th>优先级</th></tr></thead>
+          <tbody>
+            <tr><td><b>ET1100 数据手册</b><br><span class="small faint">Beckhoff ESC 数据手册</span></td>
+                <td>ETG.2200 §1.1 自己就推荐它：“Section I 是完整的 EtherCAT 功能描述，Section II 是 ESC 寄存器说明，Section III 是硬件规格”。内部框图、逐位寄存器、PDI 时序、EEPROM 时序、SYNC/LATCH、电源与时钟，全在这里。</td>
+                <td><span class="badge e">强烈建议</span></td></tr>
+            <tr><td><b>ET1810 / ET1815 / ET1820 IP 核手册</b></td><td>FPGA 实现时的可配置项：FMMU/SM 数量、端口数、PDI 类型、DC 选项</td><td><span class="badge w">做 FPGA 才需要</span></td></tr>
+            <tr><td><b>LAN9252 数据手册</b>（或 XMC4800 参考手册）</td><td>具体器件的 SPI/并口 PDI 时序、寄存器差异、中断引脚——KickCAT 的示例从站正是这两颗</td><td><span class="badge w">照 KickCAT 做要</span></td></tr>
+            <tr><td><b>厂商勘误表（Errata）</b></td><td>“规范这么写、这颗芯片实际不这样”的清单，量产前必看</td><td><span class="badge w">调试阶段</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note" style="margin-top:14px">
+        <b>一句话判断：</b>要理解“一帧怎么被处理、寄存器为什么这么排”，现有 <span class="mono">etg_doc/</span> 够；
+        要写一个从站固件或自己实现 ESC，<b>至少再加一本 ESC 数据手册</b>——因为 ETG 规范刻意只写到“外部可见行为”，
+        把 PDI 时序、内部仲裁、SYNC/LATCH 细节留给器件。
+      </div>
+
+      <!-- ============ 10 · 误解 ============ -->
+      <h2 id="myths">10 · 四个常见误解</h2>
+      <div class="grid g2">
+        <div class="card">
+          <h3>“ESC 就是一张网卡”</h3>
+          <p class="small muted">网卡把帧交给主机协议栈；ESC 自己<b>改帧</b>——按地址搬运、加 WKC、打时间戳，然后把结果放进共享内存。
+          主机看到的永远只是“我的输入变了 / 我的输出该取走了”。</p>
+        </div>
+        <div class="card">
+          <h3>“每个从站都要 CPU 参与转发”</h3>
+          <p class="small muted">转发完全在硬件里。本地 MCU 只碰自己那几个 SM 缓冲区，帧从它旁边流过它也不会知道。
+          这也是为什么从站可以用一颗几块钱的 MCU 跑到 1 ms 周期。</p>
+        </div>
+        <div class="card">
+          <h3>“WKC 就等于从站数量”</h3>
+          <p class="small muted">WKC 是<b>按命中次数</b>加的：读 +1、写 +2。一条 LRW 命中一个从站就是 3，不是 1。
+          同一个从站被两个 FMMU 各命中一次，也会加两次（ETG.1000.4 §5.4.3.5）。</p>
+        </div>
+        <div class="card">
+          <h3>“0x0004 写着 16 就一定能用 16 个 FMMU”</h3>
+          <p class="small muted">那是“支持的实体数”，不是“可自由分配的窗口数”。邮箱、PDO 会占掉一部分，
+          而且 FMMU 与 SM 的可用组合受器件配置（IP 核参数）约束，选型时要一起看。</p>
+        </div>
+      </div>
+
+      <footer class="end">
+        <a href="al.html">← 从站与状态机</a>
+        <span>下一站：<a href="eoe-foe-soe.html">EoE / FoE / SoE →</a></span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/ec-core.js"></script>
+<script>
+const { REGS, ESC_BLOCKS, ESC_REGIONS } = EC_DATA;
+const { renderShell } = EC_UI;
+
+renderShell({
+  active: 'esc',
+  crumbs: ['学习站', '主站 / 从站', 'ESC 内部原理'],
+  title: 'ESC 寄存器与流水线',
+});
+
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const hex = n => '0x' + (n >>> 0).toString(16).toUpperCase().padStart(4, '0');
+
+/* ---------------------------------------------------------------
+   1 · 时延计算器
+   --------------------------------------------------------------- */
+const LT = { n: 100, bytes: 128 };
+
+function frameUs(bytes) { return bytes * 0.08; }   // 100 Mbit/s → 80 ns/byte
+
+function renderLatency() {
+  const n = LT.n, b = LT.bytes;
+  const ft = frameUs(b);
+  const cut = n * 0.3 + ft;          // 边转发边处理：每站 300 ns + 一帧的串行时间
+  const sf = n * ft;                 // 存储转发：每站都要收满
+  const max = Math.max(cut, sf);
+
+  const bar = (label, v, color, note) => `
+    <div style="display:grid;grid-template-columns:112px 1fr 96px;gap:10px;align-items:center;padding:7px 0">
+      <span class="small" style="color:#c6d6e6">${label}</span>
+      <div class="progress" style="height:8px"><i style="width:${(v / max * 100).toFixed(2)}%;background:${color}"></i></div>
+      <span class="mono small" style="text-align:right;color:${color}">${v >= 1000 ? (v / 1000).toFixed(2) + ' ms' : v.toFixed(1) + ' µs'}</span>
+    </div>
+    <div class="small faint" style="margin:-2px 0 8px 122px">${note}</div>`;
+
+  $('#lt-out').innerHTML =
+    bar('ESC 边转发边处理', cut, '#4ade80', `${n} × 300 ns 转发 + ${ft.toFixed(1)} µs 串行时间`) +
+    bar('存储转发（对比）', sf, '#fb7185', `${n} × ${ft.toFixed(1)} µs：每站都要先收满整帧`) +
+    `<div class="small" style="margin-top:8px;color:#c6d6e6">
+       同样 ${n} 个从站、${b} 字节帧：边转发大约是存储转发的
+       <b style="color:#4ade80">1/${Math.max(1, Math.round(sf / cut))}</b>。
+     </div>`;
+}
+
+$('#lt-n').addEventListener('input', e => { LT.n = Math.max(1, Math.min(512, +e.target.value || 1)); renderLatency(); });
+$('#lt-b').addEventListener('input', e => { LT.bytes = Math.max(64, Math.min(1500, +e.target.value || 64)); renderLatency(); });
+renderLatency();
+
+/* ---------------------------------------------------------------
+   2 · 内部框图
+   --------------------------------------------------------------- */
+const LAYOUT = {
+  esm:  { x: 30,  y: 58,  w: 120, h: 66, t: '状态与门控',   s: 'AL 控制 / 状态' },
+  fmmu: { x: 300, y: 58,  w: 130, h: 66, t: '地址映射单元', s: 'FMMU 逻辑→物理' },
+  sm:   { x: 450, y: 58,  w: 140, h: 66, t: '同步管理器',   s: 'SyncManager 闸门' },
+  port: { x: 30,  y: 170, w: 120, h: 74, t: '端口与转发',   s: '端口 0–3 自动转发' },
+  epu:  { x: 300, y: 170, w: 130, h: 74, t: '帧处理单元',   s: 'EPU 逐条解析' },
+  ram:  { x: 450, y: 170, w: 140, h: 74, t: '双口内存',     s: 'DPRAM 寄存器+数据' },
+  pdi:  { x: 610, y: 170, w: 120, h: 74, t: '过程数据接口', s: 'PDI 本地 MCU' },
+  wd:   { x: 30,  y: 294, w: 120, h: 66, t: '看门狗',       s: 'PDI / PDO 超时' },
+  dc:   { x: 300, y: 294, w: 130, h: 66, t: '时钟单元',     s: 'DC 时间 + SYNC' },
+  sii:  { x: 450, y: 294, w: 140, h: 66, t: '存储器接口',   s: 'SII / EEPROM 配置' },
+};
+
+const ARROWS = [
+  [150, 207, 300, 207],   // port → epu
+  [430, 207, 450, 207],   // epu → ram
+  [590, 207, 610, 207],   // ram → pdi
+  [365, 124, 365, 170],   // fmmu ↔ epu
+  [520, 124, 520, 170],   // sm ↔ ram
+  [365, 244, 365, 294],   // epu ↔ dc
+  [520, 244, 520, 294],   // ram ↔ sii
+  [90, 124, 90, 170],     // esm ↔ port
+  [90, 244, 90, 294],     // port ↔ wd
+];
+
+const FONT = 'DejaVu Sans, Noto Sans CJK SC, Liberation Sans, sans-serif';
+
+function renderBlocks() {
+  const NS = 'http://www.w3.org/2000/svg';
+
+  $('#esc-svg').innerHTML = `
+    <svg viewBox="0 0 760 390" xmlns="${NS}" role="img" aria-label="ESC 内部结构框图"></svg>`;
+  const svg = document.querySelector('#esc-svg svg');
+
+  const mkEl = (parent, tag, attrs, text) => {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, String(attrs[k]));
+    if (text != null) n.textContent = text;
+    parent.appendChild(n);
+    return n;
+  };
+  const el = (tag, attrs, text) => mkEl(svg, tag, attrs, text);
+
+  /* 箭头 marker */
+  const defs = el('defs', {});
+  const mk = document.createElementNS(NS, 'marker');
+  mk.setAttribute('id', 'arw');
+  mk.setAttribute('viewBox', '0 0 10 10');
+  mk.setAttribute('refX', '8'); mk.setAttribute('refY', '5');
+  mk.setAttribute('markerWidth', '6'); mk.setAttribute('markerHeight', '6');
+  mk.setAttribute('orient', 'auto-start-reverse');
+  const mp = document.createElementNS(NS, 'path');
+  mp.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
+  mp.setAttribute('fill', '#2b4a63');
+  mk.appendChild(mp);
+  defs.appendChild(mk);
+
+  /* 芯片外框 */
+  el('rect', { x: 12, y: 30, width: 740, height: 348, rx: 14, fill: '#081119',
+               stroke: '#1e2c3c', 'stroke-dasharray': '6 5' });
+  el('text', { x: 24, y: 22, fill: '#5a6b7d', 'font-size': 10.5, 'letter-spacing': 1.5 },
+     'ESC（一颗芯片 / 一个 IP 核）');
+
+  /* 连线 */
+  ARROWS.forEach(([x1, y1, x2, y2]) => el('line', {
+    x1, y1, x2, y2, stroke: '#2b4a63', 'stroke-width': 1.4, 'marker-end': 'url(#arw)',
+  }));
+
+  /* 方块（逐个用 DOM API 建，避开 innerHTML 批量解析时文字量到 0 宽的问题） */
+  ESC_BLOCKS.forEach(b => {
+    const L = LAYOUT[b.id];
+    if (!L) return;
+    const g = el('g', { class: 'blk', 'data-b': b.id, tabindex: 0, role: 'button',
+                        'aria-label': b.name });
+    mkEl(g, 'rect', { x: L.x, y: L.y, width: L.w, height: L.h, rx: 10, fill: '#0c1824',
+                      stroke: b.color, 'stroke-opacity': 0.65, 'stroke-width': 1.3 });
+    /* 用两行纯文本分开画：软硬件缩写一行、中文说明一行。
+       不在同一个 text 里混排拉丁/中文字形，避开首字符度量缺失导致的截断。 */
+    mkEl(g, 'text', { x: L.x + L.w / 2, y: L.y + 29, 'text-anchor': 'middle', fill: '#eaf6ff',
+                      'font-size': 13, 'font-weight': 'bold', class: 't1',
+                      'font-family': FONT }, L.t);
+    mkEl(g, 'text', { x: L.x + L.w / 2, y: L.y + 47, 'text-anchor': 'middle', fill: '#93a9bd',
+                      'font-size': 10.5, class: 't2', 'font-family': FONT }, L.s);
+    g.addEventListener('click', () => selectBlock(b.id));
+    g.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectBlock(b.id); }
+    });
+  });
+
+  el('text', { x: 30, y: 372, fill: '#4ade80', 'font-size': 10 }, '← 端口 0：主站方向');
+  el('text', { x: 470, y: 372, fill: '#60a5fa', 'font-size': 10 }, '端口 1–3：下游 / 分支 →');
+}
+
+function selectBlock(id) {
+  $$('#esc-svg .blk').forEach(g => g.classList.toggle('on', g.dataset.b === id));
+  const b = ESC_BLOCKS.find(x => x.id === id);
+  if (!b) return;
+  $('#blk-detail').innerHTML = `
+    <div class="col-a">
+      <div class="en">${b.en}</div>
+      <h3 style="color:${b.color}">${b.name}</h3>
+      <p>${b.role}</p>
+      <p style="color:#9fb4c8">${b.detail}</p>
+    </div>
+    <div class="meta" style="border-top:none;padding-top:0;margin-top:0">
+      <div><b>寄存器</b> ${b.regs}</div>
+      <div><b>规范</b> <span class="src">${b.src}</span></div>
+      <div><b>KickCAT</b> ${b.code}</div>
+    </div>`;
+  filterRegs({ type: 'blk', blk: id, label: b.name + ' 相关寄存器' });
+}
+
+renderBlocks();
+
+/* ---------------------------------------------------------------
+   3 · 流水线
+   --------------------------------------------------------------- */
+const PIPE = [
+  { who: 'ECAT', b: 'port', adp: 0xFFFF, wkc: 0, c: 0,
+    t: '端口 0 收帧，硬件立刻锁存时刻',
+    d: '前导码一到，接收时刻就被写进 DC 的端口 0 接收时间寄存器。这一步与应用无关，纯硬件。' },
+  { who: 'ECAT', b: 'port', adp: 0xFFFF, wkc: 0, c: 0,
+    t: '判 EtherType：0x88A4 才是 EtherCAT',
+    d: '是 EtherCAT 帧就进 EPU；不是的话按 DL Control 的转发规则直通或丢弃（restricted forwarding 会销毁非 EtherCAT 帧）。' },
+  { who: 'ESC', b: 'epu', adp: 0xFFFF, wkc: 0, c: 0,
+    t: '进 EPU，读帧头、开始逐条解析 PDU',
+    d: '帧头给出总长和 PDU 数量。EPU 不需要等整个帧到齐，可以看到一条处理一条。' },
+  { who: 'ESC', b: 'epu', adp: 0xFFFF, wkc: 0, c: 0,
+    t: '读 10 字节 PDU 头',
+    d: 'CMD / IDX / ADP（或 ADR）/ LEN / C / NEXT / IRQ。这条是 APRD，ADO=0x0130，LEN=2。' },
+  { who: 'ESC', b: 'epu', adp: 0xFFFF, wkc: 0, c: 0,
+    t: '地址匹配：ADP 加 1，看是否到 0',
+    d: '本站无脑把 ADP 加 1 写回帧。原来是 0xFFFF，加 1 变 0x0000——说明下一站才是目标，本站不动手。' },
+  { who: 'ESC', b: 'ram', adp: 0x0000, wkc: 0, c: 0,
+    t: '下一站命中：把 0x0130 处的 2 字节读进帧',
+    d: '命中后从 ESC 内存搬 2 字节（AL Status）到帧的数据区；同时检查 SM 权限——这在后面邮箱读写时才有意义。' },
+  { who: 'ESC', b: 'epu', adp: 0x0001, wkc: 1, c: 0,
+    t: 'WKC +1，继续看 NEXT 位',
+    d: '读操作成功一次就 +1。NEXT=1 表示后面还有 PDU，继续解析；NEXT=0 则收工。' },
+  { who: 'ECAT', b: 'port', adp: 0x0001, wkc: 1, c: 0,
+    t: '从端口 1 转发出去；下游回程只转不处理',
+    d: '端口关闭或链路断开时帧在本地环回，并置 C 位。C=1 的帧不再被转发，防止在环里无限循环。' },
+  { who: 'ECAT', b: 'port', adp: 0x0001, wkc: 1, c: 0,
+    t: '带着 WKC 回到主站',
+    d: '主站比对期望 WKC：等于期望值说明该响应的都响应了；偏小就是“某个从站没干活”。ESC 侧全程不关心应用层。' },
+];
+
+let pipeIdx = 0;
+
+function renderPipe() {
+  $('#pipe-steps').innerHTML = PIPE.map((s, i) => `
+    <div class="step${i === pipeIdx ? ' on' : ''}" data-i="${i}">
+      <div class="n">${String(i + 1).padStart(2, '0')}</div>
+      <div>
+        <div class="t">${s.t}<span class="who">${s.who}</span></div>
+        <div class="d">${s.d}</div>
+      </div>
+    </div>`).join('');
+
+  $$('#pipe-steps .step').forEach(el => {
+    el.addEventListener('click', () => { pipeIdx = +el.dataset.i; renderPipe(); });
+  });
+
+  const cur = PIPE[pipeIdx];
+  $('#pipe-adp').textContent = hex(cur.adp);
+  $('#pipe-wkc').textContent = cur.wkc;
+  $('#pipe-c').textContent = cur.c;
+  $$('#esc-svg .blk').forEach(g => g.classList.toggle('on', g.dataset.b === cur.b));
+
+  $('#pipe-log').innerHTML = PIPE.slice(0, pipeIdx + 1).map((s, i) => {
+    const cls = i === pipeIdx ? 'k' : '';
+    return `<div class="${cls}"><span class="y">${String(i + 1).padStart(2, '0')}</span> ` +
+      `<span class="g">[${s.who}]</span> ${s.t}</div>`;
+  }).join('') + `<div class="faint">— 结束 —</div>`;
+  $('#pipe-log').scrollTop = $('#pipe-log').scrollHeight;
+}
+
+$('#pipe-next').addEventListener('click', () => {
+  pipeIdx = Math.min(PIPE.length - 1, pipeIdx + 1); renderPipe();
+});
+$('#pipe-prev').addEventListener('click', () => {
+  pipeIdx = Math.max(0, pipeIdx - 1); renderPipe();
+});
+$('#pipe-reset').addEventListener('click', () => { pipeIdx = 0; renderPipe(); });
+renderPipe();
+
+/* ---------------------------------------------------------------
+   4 · 寻址判定
+   --------------------------------------------------------------- */
+const SLAVES = [
+  { pos: 0, sta: 1001, fmmu: { start: 0x1000, len: 8 } },
+  { pos: 1, sta: 1002, fmmu: { start: 0x1008, len: 8 } },
+  { pos: 2, sta: 1003, fmmu: { start: 0x1010, len: 8 } },
+];
+
+const AM = { cmd: 'APRD', k: 1, sta: 1002, adr: 0x1008, len: 4 };
+
+const isPos = c => /^AP/.test(c);
+const isNode = c => /^FP/.test(c);
+const isLog = c => /^L/.test(c);
+const isBc = c => /^B/.test(c);
+
+function wkcDelta(cmd, hit) {
+  if (!hit) return 0;
+  if (/W$/.test(cmd) && !/RD$/.test(cmd)) return 1;       // xxxWR
+  if (/RW$/.test(cmd)) return 3;                          // xxxRW：读 +1、写 +2
+  return 1;                                               // xxxRD
+}
+
+function renderAddr() {
+  const { cmd, k, sta, adr, len } = AM;
+  const rows = SLAVES.map(s => {
+    let hit = false, why = '';
+    if (isBc(cmd)) { hit = true; why = '广播：所有站都处理'; }
+    else if (isPos(cmd)) {
+      hit = (s.pos === k);
+      why = hit ? `ADP 减到 0 的正是第 ${s.pos} 站` : `ADP 在第 ${s.pos} 站还不是 0`;
+    } else if (isNode(cmd)) {
+      hit = (s.sta === sta);
+      why = hit ? `站地址 ${s.sta} 匹配` : `站地址 ${s.sta} ≠ ${sta}`;
+    } else {
+      const a0 = s.fmmu.start, a1 = s.fmmu.start + s.fmmu.len;
+      hit = (adr < a1) && (adr + len > a0);
+      why = hit ? `FMMU 窗口 0x${a0.toString(16)}–0x${(a1 - 1).toString(16)} 有交集`
+                : `FMMU 窗口 0x${a0.toString(16)}–0x${(a1 - 1).toString(16)} 无交集`;
+    }
+    return { s, hit, why, d: wkcDelta(cmd, hit) };
+  });
+
+  $('#am-tbl').innerHTML = `
+    <thead><tr><th>从站</th><th>位置</th><th>站地址</th><th>FMMU 窗口</th><th>本次命中</th><th>WKC</th><th>判定依据</th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td class="mono">ESC #${r.s.pos}</td>
+      <td class="num">${r.s.pos}</td>
+      <td class="mono">${r.s.sta}</td>
+      <td class="mono small">0x${r.s.fmmu.start.toString(16)} +${r.s.fmmu.len}</td>
+      <td>${r.hit ? '<span class="hit">命中</span>' : '<span class="miss">—</span>'}</td>
+      <td class="mono">${r.d ? '+' + r.d : '0'}</td>
+      <td class="small muted">${r.why}</td>
+    </tr>`).join('')}</tbody>`;
+
+  const total = rows.reduce((a, r) => a + r.d, 0);
+  const hits = rows.filter(r => r.hit).length;
+  const adpInit = (0x10000 - k) & 0xFFFF;
+  const kind = isBc(cmd) ? '广播（所有站）' : isPos(cmd) ? '位置寻址' : isNode(cmd) ? '节点寻址' : '逻辑寻址';
+
+  $('#am-out').innerHTML =
+    `<b>${cmd}</b> 属于 ${kind}：命中 ${hits} 个从站，期望 WKC = <b class="mono" style="color:#7dd3fc">${total}</b>` +
+    (isPos(cmd) ? `　·　ADP 初值应为 <span class="mono">${hex(adpInit)}</span>（−${k} 的补码）` : '') +
+    `　·　若实际 WKC 小于期望，说明有站没响应或无交集。`;
+}
+
+$('#am-cmd').addEventListener('change', e => { AM.cmd = e.target.value; renderAddr(); });
+$('#am-k').addEventListener('input', e => { AM.k = Math.max(0, Math.min(2, +e.target.value || 0)); renderAddr(); });
+$('#am-sta').addEventListener('input', e => { AM.sta = +e.target.value || 0; renderAddr(); });
+$('#am-adr').addEventListener('input', e => {
+  const v = e.target.value.trim();
+  AM.adr = /^0x/i.test(v) ? parseInt(v, 16) : (parseInt(v, 10) || 0);
+  renderAddr();
+});
+$('#am-len').addEventListener('input', e => { AM.len = Math.max(1, +e.target.value || 1); renderAddr(); });
+renderAddr();
+
+/* ---------------------------------------------------------------
+   5 · 内存地图 + 寄存器表
+   --------------------------------------------------------------- */
+const addrNum = r => {
+  const m = /0x([0-9a-fA-F]+)/.exec(r.addr);
+  return m ? parseInt(m[1], 16) : 0;
+};
+
+let regFilter = { type: 'all' };
+
+function filterRegs(f) {
+  if (f) regFilter = f;
+  let rows = REGS.slice();
+  let title = '全部寄存器';
+
+  if (regFilter.type === 'blk') {
+    rows = rows.filter(r => r.blk === regFilter.blk);
+    title = regFilter.label;
+  } else if (regFilter.type === 'region') {
+    const g = ESC_REGIONS.find(x => x.id === regFilter.id);
+    rows = rows.filter(r => { const a = addrNum(r); return a >= g.from && a <= g.to; });
+    title = `${g.name}（${hex(g.from)}–${hex(g.to)}）`;
+  }
+
+  $('#reg-title').textContent = `${title} · ${rows.length} 条`;
+  $('#reg-tbl').innerHTML = `
+    <thead><tr><th>地址</th><th>名称</th><th>宽</th><th>读/写</th><th>说明</th></tr></thead>
+    <tbody>${rows.length ? rows.map(r => `<tr>
+      <td class="mono" style="color:#7dd3fc;white-space:nowrap">${r.addr}</td>
+      <td>${r.name}</td>
+      <td class="num mono small">${r.size >= 1024 ? (r.size / 1024) + ' KB' : r.size + ' B'}</td>
+      <td class="mono small">${r.rw}</td>
+      <td class="small muted">${r.note}</td>
+    </tr>`).join('') : `<tr><td colspan="5" class="small muted">该功能块没有独立的寄存器条目，它的行为通过上表相邻条目与 PDI/事件体现。</td></tr>`}</tbody>`;
+}
+
+function renderMemMap() {
+  $('#memmap').innerHTML = ESC_REGIONS.map(g => {
+    const cnt = REGS.filter(r => { const a = addrNum(r); return a >= g.from && a <= g.to; }).length;
+    return `<div class="seg" data-id="${g.id}">
+      <div class="a">${hex(g.from)}<br><span class="faint">${hex(g.to)}</span></div>
+      <div class="n">${g.name}<small>${g.note}</small></div>
+      <div class="c">${cnt || '—'}</div>
+    </div>`;
+  }).join('');
+
+  $$('#memmap .seg').forEach(el => {
+    el.addEventListener('click', () => {
+      $$('#memmap .seg').forEach(x => x.classList.toggle('on', x === el));
+      filterRegs({ type: 'region', id: el.dataset.id });
+    });
+  });
+}
+
+$('#reg-all').addEventListener('click', () => {
+  $$('#memmap .seg').forEach(x => x.classList.remove('on'));
+  filterRegs({ type: 'all' });
+});
+
+renderMemMap();
+filterRegs({ type: 'all' });
+
+/* ---------------------------------------------------------------
+   6 · 邮箱握手
+   --------------------------------------------------------------- */
+const MB = { full: false };
+const mbLog = [];
+
+function mbSay(who, text, cls) {
+  mbLog.push(`<div><span class="y">${who}</span> ${cls ? `<span class="${cls}">${text}</span>` : text}</div>`);
+  $('#mb-log').innerHTML = mbLog.join('');
+  $('#mb-log').scrollTop = $('#mb-log').scrollHeight;
+}
+
+function mbDraw() {
+  const chip = $('#mb-state');
+  chip.textContent = MB.full ? '满' : '空';
+  chip.className = 'state-chip ' + (MB.full ? 'full' : 'empty');
+  $('#mb-ecat').textContent = MB.full ? '上次写入完成，等待对方读走' : '可以写';
+  $('#mb-pdi').textContent = MB.full ? '有新报文可读' : '空，读会失败';
+}
+
+$('#mb-mwrite').addEventListener('click', () => {
+  if (MB.full) { mbSay('ECAT', '写失败：邮箱满 → ESC 返回 -EAGAIN，主站下个周期重试', 'r'); return; }
+  MB.full = true;
+  mbSay('ECAT', '写 8 B 到 SM0，写到最后一个字节 → 状态置“满”，AL Event 置位', 'g');
+  mbDraw();
+});
+
+$('#mb-pread').addEventListener('click', () => {
+  if (!MB.full) { mbSay('PDI', '读失败：邮箱空 → ESC 返回 -EAGAIN，本地等待事件', 'r'); return; }
+  MB.full = false;
+  mbSay('PDI', '从 SM0 读 8 B，读到最后一个字节 → 状态清“空”', 'g');
+  mbDraw();
+});
+
+$('#mb-mread').addEventListener('click', () => {
+  mbSay('ECAT', '读 SM0（方向是“主站写”，主站读不到东西——这是配置错误）', 'y');
+});
+
+$('#mb-reset').addEventListener('click', () => {
+  MB.full = false; mbLog.length = 0;
+  $('#mb-log').innerHTML = '';
+  mbSay('—', '复位：SM0 空，双方都可以动作');
+  mbDraw();
+});
+
+mbSay('—', '初始化：SM0 配置为邮箱、方向“主站写 → 本地读”，当前为空');
+mbDraw();
+
+/* 初始选中 EPU（放在最后：此时 regFilter / filterRegs 都已初始化） */
+selectBlock('epu');
+
+/* 首帧 SVG 文本可能量到 0 宽：页面脚本执行时字体度量尚未就绪，
+   结果被缓存且不会自动重算。显式加载所需字体后重新赋一次文本即可。 */
+function nudgeSvgText() {
+  const svg = document.querySelector('#esc-svg svg');
+  if (!svg) return;
+  svg.querySelectorAll('text').forEach(t => {
+    const txt = t.textContent;
+    t.textContent = '';
+    void t.getBBox();
+    t.textContent = txt;
+  });
+}
+
+async function fontsThenNudge() {
+  try {
+    if (document.fonts) {
+      await document.fonts.load('13px "DejaVu Sans"');
+      await document.fonts.load('13px "Noto Sans CJK SC"');
+      await document.fonts.ready;
+    }
+  } catch (e) { /* 字体 API 不可用时直接重试 */ }
+  nudgeSvgText();
+  setTimeout(nudgeSvgText, 100);
+  setTimeout(nudgeSvgText, 400);
+}
+fontsThenNudge();
+</script>
+
+<div class="selfcheck sc-idle" id="selfcheck" data-state="idle" role="status" aria-live="polite" tabindex="0"
+     title="脚本未执行：若通过 file:// 打开，请确认 assets/js/ec-core.js 存在；否则按 F12 查看控制台">
+  <span class="sc-dot"></span><span class="sc-text">脚本未执行</span>
+</div>
+
+</body>
+</html>

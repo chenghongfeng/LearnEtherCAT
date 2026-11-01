@@ -44,12 +44,13 @@ node .tools/serve.mjs 4173
 | 02 | `network.html` | 发一帧穿过 5 个从站：APRD/FPRD/BRD/LRW 四种场景、FMMU 覆盖图、时延预算计算器 |
 | 03 | `master.html` | ETG.1500 的 27 项 Class A/B 能力矩阵、11 步启动时序、周期时间线、主站诊断对象 0x8nnn/0x9nnn/0xAnnn |
 | 04 | `al.html` | ESM 五态状态机（可点击迁移、AL Control/Status 位图、错误场景）、邮箱头 + CoE 头、SDO 快速/分段/CA/Emergency 报文 |
-| 05 | `eoe-foe-soe.html` | EoE / FoE / SoE 逐字节拆解：EoE 4 字节头与 32 字节分片、FoE 六个 OpCode 与固件下载时序、SoE 的 IDN 模型；四协议对比 |
-| 06 | `slave.html` | 真实 ESI 示例（3 个官方 XML）解析成可点的树；SII/EEPROM 字表；从站实现路线；CTT 测试章节 |
-| 07 | `dc.html` | 分布式时钟：晶振漂移、ARMW 补偿、SYNC0 时序；DC 寄存器速查；四个常见坑 |
-| 08 | `spec.html` | 17 份本地文档索引：版本、访问级别、路径、关键章节、被哪个模块使用；条款→页面对照；覆盖矩阵 |
-| 09 | `guide.html` | 《EtherCAT 学习手册》通读版（由 `docs/guide.md` 编译） |
-| 10 | `glossary.html` | 49 个术语的英文全称、中文名、一句话定义、详细解释、规范出处与相关词；支持搜索与分组 |
+| 05 | `esc.html` | ESC 内部原理：可点击的 10 方块框图（联动寄存器表）、9 步进站流水线、三种寻址判定器、0x0000–0xFFFF 内存地图、SM 邮箱握手演示、DC 寄存器账、KickCAT 软件 ESC 逐条对照、文档缺口分析 |
+| 06 | `eoe-foe-soe.html` | EoE / FoE / SoE 逐字节拆解：EoE 4 字节头与 32 字节分片、FoE 六个 OpCode 与固件下载时序、SoE 的 IDN 模型；四协议对比 |
+| 07 | `slave.html` | 真实 ESI 示例（3 个官方 XML）解析成可点的树；SII/EEPROM 字表；从站实现路线；CTT 测试章节 |
+| 08 | `dc.html` | 分布式时钟：晶振漂移、ARMW 补偿、SYNC0 时序；DC 寄存器速查；四个常见坑 |
+| 09 | `spec.html` | 17 份本地文档索引：版本、访问级别、路径、关键章节、被哪个模块使用；条款→页面对照；覆盖矩阵；**还缺哪些文档** |
+| 10 | `guide.html` | 《EtherCAT 学习手册》通读版（由 `docs/guide.md` 编译） |
+| 11 | `glossary.html` | 54 个术语的英文全称、中文名、一句话定义、详细解释、规范出处与相关词；支持搜索与分组 |
 
 ---
 
@@ -59,7 +60,7 @@ node .tools/serve.mjs 4173
 
 - **正文自动标注**：页面加载后，正文里的术语会被加上虚线下划线（同一段里每个词只标 1 处，避免满屏都是线）。
 - **悬停/点击弹窗**：显示英文全称、中文名、一句话定义、详细解释、规范出处、相关词，以及“术语表 →”入口。
-- **独立术语表页**：`glossary.html` 收录 49 条，按数据链路层 / 应用层 / 分布式时钟 / 主站体系分组，支持中英文搜索与 `#k-adp` 锚点定位。
+- **独立术语表页**：`glossary.html` 收录 54 条，按数据链路层 / 应用层 / 分布式时钟 / 主站体系分组，支持中英文搜索与 `#k-adp` 锚点定位。
 
 ![关键词弹窗](docs/assets/kw-tip.png)
 
@@ -197,7 +198,7 @@ node .tools/check_glossary.mjs
 node .tools/check_kw_tour.mjs
 ```
 
-当前 11 个页面在 jsdom 与 Chrome 下均为 0 runtime error；`frame.html` 渲染 13 个帧单元 + 96 个位；
+当前 12 个页面在 Chrome 下均为 0 runtime error；`frame.html` 渲染 13 个帧单元 + 96 个位；
 `slave.html` 渲染 697 个 ESI 节点；`spec.html` 渲染 73 行；`guide.html` 渲染 102 行表格。
 
 ---

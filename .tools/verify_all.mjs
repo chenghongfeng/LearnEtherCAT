@@ -9,8 +9,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const mode = process.argv[2] || 'file';
-const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const PAGES = ['index', 'frame', 'network', 'master', 'al', 'eoe-foe-soe', 'slave', 'dc', 'spec', 'guide', 'glossary'];
+const CHROME = process.env.CHROME_BIN || (process.platform === 'win32'
+  ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+  : '/usr/bin/google-chrome');
+const PAGES = ['index', 'frame', 'network', 'master', 'al', 'esc', 'eoe-foe-soe', 'slave', 'dc', 'spec', 'guide', 'glossary'];
 const port = 9722;
 
 const proc = spawn(CHROME, [
@@ -83,6 +85,28 @@ for (const name of PAGES) {
       q('#trans-btns button')?.click();
       out.click = q('#esm-state')?.textContent;
       out.ok = out.click === 'PREOP';
+    }
+    if (${JSON.stringify(name)} === 'esc') {
+      out.blk = document.querySelectorAll('#esc-svg .blk').length;
+      out.steps = document.querySelectorAll('#pipe-steps .step').length;
+      out.seg = document.querySelectorAll('#memmap .seg').length;
+      out.regs = document.querySelectorAll('#reg-tbl tbody tr').length;
+      q('#reg-all')?.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+      out.regsAll = document.querySelectorAll('#reg-tbl tbody tr').length;
+      out.kc = document.querySelectorAll('#kc-table tbody tr').length;
+      q('#esc-svg .blk[data-b="fmmu"]')?.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+      out.blkClick = q('#reg-title')?.textContent || '';
+      out.blkClickTest = out.blkClick.includes('相关寄存器');
+      q('#memmap .seg[data-id="dc"]')?.click();
+      out.segClick = document.querySelectorAll('#reg-tbl tbody tr').length;
+      q('#am-cmd').value = 'BRD';
+      q('#am-cmd')?.dispatchEvent(new Event('change', {bubbles:true}));
+      out.brd = q('#am-out')?.textContent?.includes('WKC = 3') ? 'brd-ok' : 'brd-no';
+      q('#mb-mwrite')?.click();
+      out.mbx = q('#mb-state')?.textContent;
+      out.ok = out.blk === 10 && out.steps === 9 && out.seg >= 8
+        && out.kc >= 8 && out.regsAll > 40 && out.blkClickTest && !out.blkClick.includes('全部寄存器') && out.segClick > 5
+        && out.brd === 'brd-ok' && out.mbx === '满';
     }
     if (${JSON.stringify(name)} === 'eoe-foe-soe') {
       out.bits = document.querySelectorAll('.bit').length;
