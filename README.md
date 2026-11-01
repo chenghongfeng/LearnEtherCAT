@@ -54,6 +54,23 @@ node .tools/serve.mjs 4173
 
 ---
 
+## KickCAT 源码学习
+
+`KickCAT/` 是本地源码副本（当前快照 `v2.6-rc3-12-gcb2e1a1`），不从本仓库分发。
+下面三份文档把本站的协议知识、KickCAT 仿真和源码调用链串起来：
+
+- [`docs/ethercat-kickcat-learning-plan.md`](docs/ethercat-kickcat-learning-plan.md)：
+  12 周、每周 8–12 小时的 EtherCAT + KickCAT 学习计划，包含每周实验、
+  交付物、验收标准和故障定位顺序。
+- [`docs/kickcat-framework.md`](docs/kickcat-framework.md)：按当前源码说明主站
+  `Bus → Link → Frame → Socket`、从站 `ESM/PDO/OD`、软件 ESC、仿真器、
+  工具箱、内存所有权、已知限制和扩展点。
+- [`docs/ethercat-master-embedded-slave-foundations.md`](docs/ethercat-master-embedded-slave-foundations.md)：
+  面向纯软件 C++ 工程师的嵌入式与从站知识地图，覆盖 PDI/SPI、内存与并发、
+  ESM/PDO/OD、实时性、DC、故障诊断、10 周补充路线和上板验收清单。
+
+---
+
 ## 术语表与关键词弹窗
 
 第一次看到 ADP、ADO、WKC、FMMU 这些缩写，基本等于看天书。现在：
@@ -117,6 +134,9 @@ LearnEtherCAT/
 │   ├── js/ec-core.js               # 上面两者合并出的 classic 包（生成物，页面实际加载）
 │   └── data/esi-examples.json      # 由真实 ESI XML 生成的精简树
 ├── docs/guide.md                   # 学习手册源文件
+├── docs/ethercat-kickcat-learning-plan.md # EtherCAT + KickCAT 学习计划
+├── docs/kickcat-framework.md       # KickCAT 源码框架说明
+├── docs/ethercat-master-embedded-slave-foundations.md # 嵌入式/从站系统知识
 ├── etg_doc/                        # 你提供的官方 ETG 文档（不随仓库分发）
 ├── start.ps1                       # 一键启动本地服务器
 └── .tools/                         # 构建与测试脚本（不参与网页运行）
