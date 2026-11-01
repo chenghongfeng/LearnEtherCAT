@@ -140,7 +140,7 @@ for (const name of PAGES) {
       out.rows = document.querySelectorAll('.maprow').length;
       q('.maprow')?.click();
       out.click = document.querySelectorAll('.detailrow[style=""]').length;
-      out.ok = out.rows === 17 && out.click === 1;
+      out.ok = out.rows === 20 && out.click === 1;
     }
     if (${JSON.stringify(name)} === 'glossary') {
       out.terms = document.querySelectorAll('.g-term').length;

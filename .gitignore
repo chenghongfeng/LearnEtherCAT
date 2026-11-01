@@ -7,8 +7,10 @@
 .tmp_*
 .shots/
 
-# 官方规范 PDF：版权归 ETG，不随仓库分发
+# 官方规范 PDF：版权归 ETG / Beckhoff，不随仓库分发
 etg_doc/
+et1000_doc/
+.etext/
 
 # 参考用的第三方仓库（软件 ESC 实现参考），勿入库
 KickCAT/

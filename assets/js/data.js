@@ -144,6 +144,30 @@ export const SPECS = [
     why: '各家 ESC 的端口数、FMMU/SM/DC 能力、封装对比，从站选型依据。',
     chapters: ['全表'],
   },
+  {
+    id: 'ESC.§I', ver: 'v2.5', title: 'ESC Datasheet Section I — Technology',
+    cn: 'ESC 技术总述', layer: 'impl', access: 'free',
+    file: 'et1000_doc/ethercat_esc_datasheet_sec1_technology_v2.5.pdf',
+    pages: 162,
+    why: '帧处理与转发机制、拓扑、三种同步方式、PHY 选型、ESM、邮箱、FMMU/SM 概念、DC 原理。补齐“为什么这么设计”。',
+    chapters: ['§1', '§2', '§3', '§4', '§5'],
+  },
+  {
+    id: 'ESC.§II', ver: '3.0', title: 'ESC Datasheet Section II — Registers',
+    cn: 'ESC 寄存器详解', layer: 'impl', access: 'free',
+    file: 'et1000_doc/ethercat_esc_datasheet_sec2_registers_3i0.pdf',
+    pages: 107,
+    why: '逐位寄存器定义，2.1–2.51 节覆盖 0x0000–0x0FFF 全部寄存器，含 SYNC/LATCH 单元与器件专属区。本站寄存器表的权威出处。',
+    chapters: ['§2.1–2.51', '§3'],
+  },
+  {
+    id: 'ET1100', ver: 'v2.1', title: 'ET1100 EtherCAT ASIC Datasheet',
+    cn: 'ET1100 硬件手册', layer: 'impl', access: 'free',
+    file: 'et1000_doc/ethercat_et1100_datasheet_v2i1.pdf',
+    pages: 124,
+    why: '封装引脚、电源时钟、PDI 与 EEPROM 时序、AC 时序表（Table 91 转发延时实测值）、热特性。动手做从站硬件的依据。',
+    chapters: ['§7', '§8', '§9'],
+  },
 ];
 
 export const LAYERS = [
@@ -207,7 +231,8 @@ export const ESM = [
    g   : 分组，用于页面筛选（dl/al/evt/stat/wd/eeprom/mii/fmmu/sm/dc/io/ram）
    blk : 属于 ESC 内的哪个功能块（见 ESC_BLOCKS），框图点击时联动寄存器表
    偏移以 ETG.1000.4 V1.0.4 Table 31/33/36/37/56/57/58/59/60 为准；
-   0x0140/0x0150 与 0x0980 起的 SYNC/LATCH 是 ET1100 等器件的实现约定（规范只到“DL-user 区”）。
+   0x0140–0x0153（PDI）与 0x0980 起的 SYNC/LATCH 在 ET1100 数据手册 Section II 中有完整定义；
+   其中 PDI 子配置位（0x0150）依器件类型而变。
 --------------------------------------------------------- */
 export const REGS = [
   /* --- DL 信息：ESC 的“身份证”，主站上电第一件事就是读它 --- */
@@ -218,18 +243,28 @@ export const REGS = [
   { addr: '0x0005', name: 'SyncManager 数量', size: 1, rw: 'R',  g: 'dl', blk: 'sm',   note: '支持的 SM 通道数（0…16）' },
   { addr: '0x0006', name: 'RAM 大小',         size: 1, rw: 'R',  g: 'dl', blk: 'ram',  note: '过程数据 RAM，单位 KB（0…60）' },
   { addr: '0x0007', name: '端口描述',         size: 1, rw: 'R',  g: 'dl', blk: 'port', note: '每 2 bit 描述一个端口的物理层' },
-  { addr: '0x0008', name: 'ESC 特性',         size: 2, rw: 'R',  g: 'dl', blk: 'epu',  note: 'bit2 DC 支持 / bit3 64 位 / bit9 不支持 LRW…' },
+  { addr: '0x0008', name: 'ESC 特性',         size: 2, rw: 'R',  g: 'dl', blk: 'epu',  note: 'bit2 DC、bit3 DC 位宽、bit4 低抖动、bit9 LRW、bit10 BRW/APRW/FPRW、bit11 固定 FMMU-SM 配置' },
   { addr: '0x0010', name: '配置站地址',       size: 2, rw: 'RW', g: 'dl', blk: 'epu',  note: 'Configured Station Address，主站枚举后写入' },
+  { addr: '0x0020', name: 'Register Write Enable', size: 1, rw: 'R', g: 'dl', blk: 'epu', note: 'bit0 置位后 0x0000–0x001F 才可写（防误改身份区）' },
+  { addr: '0x0021', name: 'Register Write Protection', size: 1, rw: 'R', g: 'dl', blk: 'epu', note: '写保护状态回读' },
+  { addr: '0x0030', name: 'ESC Write Enable',   size: 1, rw: 'RW', g: 'dl', blk: 'epu', note: 'bit0 置位后 0x0040–0x00FF 可写' },
+  { addr: '0x0031', name: 'ESC Write Protection', size: 1, rw: 'R', g: 'dl', blk: 'epu', note: '写保护状态回读' },
+  { addr: '0x0040', name: 'ESC Reset ECAT',     size: 1, rw: 'RW', g: 'dl', blk: 'epu', note: '写 0x52 复位 ECAT 侧接口' },
+  { addr: '0x0041', name: 'ESC Reset PDI',      size: 1, rw: 'RW', g: 'dl', blk: 'pdi', note: '写 0x52 复位 PDI 侧接口' },
   { addr: '0x0012', name: '站别名',           size: 2, rw: 'RW', g: 'dl', blk: 'sii',  note: 'Station Alias，上电取自 SII 第 4 个字' },
   { addr: '0x0100', name: 'DL Control',       size: 4, rw: 'RW', g: 'dl', blk: 'port', note: '转发规则 + 端口 0–3 开/闭环控制 + 别名址使能(bit24)' },
+  { addr: '0x0108', name: 'Physical RW Offset', size: 2, rw: 'RW', g: 'dl', blk: 'epu', note: '给物理读写地址加一个偏移，主站做调试时用' },
   { addr: '0x0110', name: 'DL Status',        size: 2, rw: 'R',  g: 'dl', blk: 'port', note: 'DLS-user 运行/看门狗 + 端口 0–3 链路状态' },
   /* --- AL / PDI --- */
   { addr: '0x0120', name: 'AL Control',       size: 2, rw: 'RW', g: 'al', blk: 'esm',  note: '主机请求的状态：bit0-3 State，bit4 ErrAck，bit5 ID，bit6 Ack' },
   { addr: '0x0130', name: 'AL Status',        size: 2, rw: 'R',  g: 'al', blk: 'esm',  note: 'ESC 当前状态：bit0-3 State，bit4 Error Ind' },
   { addr: '0x0134', name: 'AL Status Code',   size: 2, rw: 'R',  g: 'al', blk: 'esm',  note: '错误码，ETG.1020 §4 有全表' },
+  { addr: '0x0138', name: 'RUN LED Override', size: 1, rw: 'RW', g: 'al', blk: 'esm', note: '强制点亮 RUN 灯（调试用）' },
+  { addr: '0x0139', name: 'ERR LED Override', size: 1, rw: 'RW', g: 'al', blk: 'esm', note: '强制点亮 ERR 灯（调试用）' },
   { addr: '0x0140', name: 'PDI Control',      size: 1, rw: 'RW', g: 'al', blk: 'pdi',  note: 'PDI 类型与 AL 事件确认（按器件约定）' },
   { addr: '0x0141', name: 'ESC Configuration', size: 1, rw: 'RW', g: 'al', blk: 'esm', note: 'bit0 Device Emulation：ESC 自己镜像 AL Status' },
-  { addr: '0x0150', name: 'PDI Information',  size: 1, rw: 'R',  g: 'al', blk: 'pdi',  note: '器件约定的 PDI 能力' },
+  { addr: '0x014E', name: 'PDI Information',  size: 2, rw: 'R',  g: 'al', blk: 'pdi',  note: 'PDI 版本与能力（Table 29）' },
+  { addr: '0x0150', name: 'PDI Configuration', size: 4, rw: 'RW', g: 'al', blk: 'pdi',  note: '按 PDI 类型解析：数字 IO / SPI / 8-16 位并口 / 片上总线 / Sync-Latch' },
   /* --- 事件：PDI 侧靠它知道“主站动过邮箱/过程数据了” --- */
   { addr: '0x0200', name: 'ECAT Event Mask',  size: 2, rw: 'RW', g: 'evt', blk: 'sm',  note: '哪些事件允许被 ECAT 侧触发' },
   { addr: '0x0204', name: 'PDI AL Event Mask', size: 4, rw: 'RW', g: 'evt', blk: 'pdi', note: '哪些 AL 事件允许发给本地 MCU（中断使能）' },
@@ -239,6 +274,8 @@ export const REGS = [
   { addr: '0x0300', name: 'RX Error Counter', size: 8, rw: 'RW', g: 'stat', blk: 'port', note: '端口 0–7 各 1 字节，帧校验/链路错误计数' },
   { addr: '0x0308', name: 'Forward RX Error', size: 4, rw: 'R',  g: 'stat', blk: 'port', note: '从上游转发进来的坏帧计数' },
   { addr: '0x030C', name: 'ECAT/PDI Error',   size: 3, rw: 'R',  g: 'stat', blk: 'epu',  note: 'ECAT 处理单元 / PDI 错误计数与错误码' },
+  { addr: '0x030D', name: 'PDI Error Counter',  size: 1, rw: 'R', g: 'stat', blk: 'pdi', note: 'PDI 侧访问错误计数' },
+  { addr: '0x030E', name: 'PDI Error Code',     size: 2, rw: 'R', g: 'stat', blk: 'pdi', note: '按 PDI 类型给出具体错误码（SPI/并口/Avalon/AXI）' },
   { addr: '0x0310', name: 'Lost Link Counter', size: 4, rw: 'R', g: 'stat', blk: 'port', note: '端口失链次数，定位“哪一段线断了”' },
   /* --- 看门狗 --- */
   { addr: '0x0400', name: 'Watchdog Divider', size: 2, rw: 'RW', g: 'wd', blk: 'wd',   note: '基准 40 ns 的分频系数' },
@@ -274,6 +311,7 @@ export const REGS = [
   { addr: '0x09A0', name: 'DC SYNC0 周期',    size: 4, rw: 'RW', g: 'dc', blk: 'dc',   note: 'SYNC0 周期（ns）' },
   { addr: '0x09A4', name: 'DC SYNC1 周期',    size: 4, rw: 'RW', g: 'dc', blk: 'dc',   note: 'SYNC1 周期（ns），可与 SYNC0 不同' },
   /* --- 数字 IO / 用户区 / 过程数据 --- */
+  { addr: '0x0E00', name: '器件专属寄存器',   size: 256, rw: 'RW', g: 'io', blk: 'epu',  note: '0x0E00–0x0EFF 由各 ESC（ET1100/ET1200/IP Core）自行定义' },
   { addr: '0x0F00', name: '数字 IO 输出',     size: 4, rw: 'RW', g: 'io', blk: 'pdi',  note: '32 位数字输出数据' },
   { addr: '0x0F10', name: 'GPO / GPI',        size: 16, rw: 'RW', g: 'io', blk: 'pdi', note: '0x0F10 通用输出、0x0F18 通用输入' },
   { addr: '0x0F80', name: 'User RAM',         size: 128, rw: 'RW', g: 'io', blk: 'pdi', note: '给本地应用自用的一小片 RAM' },
@@ -342,7 +380,7 @@ export const ESC_BLOCKS = [
     id: 'pdi', name: '过程数据接口', en: 'Process Data Interface (PDI)', color: '#94a3b8',
     role: '本地 MCU 看 ESC 的唯一窗口：SPI、8/16 位并行、数字 IO 或 FPGA 片上总线。',
     detail: 'PDI 读写的是同一片 DPRAM 与寄存器，但走的是“本地”那一侧：读输入映像、写输出映像、收发邮箱、轮询 0x0220 事件。PDI 的类型在 SII 里声明，上电由 ESC 激活。',
-    regs: '0x0140 PDI Control / 0x0150 PDI Information / 0x0220 AL Event Request',
+    regs: '0x0140 PDI Control / 0x014E PDI Information / 0x0150 PDI Configuration / 0x0220 AL Event Request',
     src: 'ETG.1000.4 §6.1.5 · ETG.2200 §2',
     code: 'EmulatedESC::read()/write() 即 PDI 视角，Access::PDI_READ / PDI_WRITE 与 ECAT 侧共用一套访问检查',
   },
@@ -375,7 +413,8 @@ export const ESC_REGIONS = [
   { id: 'fmmu',  from: 0x0600, to: 0x06FF, name: 'FMMU ×16',          note: '每个实体 16 字节，逻辑→物理映射' },
   { id: 'sm',    from: 0x0800, to: 0x087F, name: 'SyncManager ×16',   note: '每个通道 8 字节，缓冲类型/方向/状态' },
   { id: 'dc',    from: 0x0900, to: 0x09FF, name: 'DC / SYNC / LATCH', note: '时间戳、系统时间、PLL、SYNC0/1、锁存' },
-  { id: 'io',    from: 0x0F00, to: 0x0FFF, name: '数字 IO / 用户 RAM', note: 'GPO/GPI、User RAM（器件约定）' },
+  { id: 'dev',   from: 0x0E00, to: 0x0EFF, name: '器件专属寄存器',  note: '各 ESC 自行定义（ET1100 / ET1200 / IP Core 不同）' },
+  { id: 'io',    from: 0x0F00, to: 0x0FFF, name: '数字 IO / 用户 RAM', note: 'GPO/GPI、User RAM' },
   { id: 'ram',   from: 0x1000, to: 0xFFFF, name: '过程数据 RAM',      note: '0…60 KB，邮箱与 PDO 缓冲区' },
 ];
 

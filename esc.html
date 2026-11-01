@@ -126,8 +126,9 @@
         </div>
         <div id="lt-out"></div>
         <p class="small faint" style="margin:10px 0 0">
-          每站转发延时取 300 ns（KickCAT 软件 ESC 的默认建模值 <code class="mono">forwarding_delay_{300ns}</code>；
-          实际 ASIC 在 100 ns–1 µs 量级）。帧时间 = 字节数 × 80 ns。
+          每站转发延时取 300 ns。ET1100 数据手册 Table 91 给出的实测平均值：MII→MII 305 ns、
+          MII→EBUS 280 ns、EBUS→MII 170 ns、EBUS→EBUS 150 ns；KickCAT 软件 ESC 用的默认建模值
+          也是 <code class="mono">forwarding_delay_{300ns}</code>。帧时间 = 字节数 × 80 ns。
         </p>
       </div>
 
@@ -243,7 +244,7 @@
         <b>一个容易踩的坑：</b>DC 的接收时间在 <span class="mono">0x0900–0x090F</span>（四个端口各 32 位），
         系统时间是 <span class="mono">0x0910</span>，<span class="mono">0x0928</span> 是传输延时、<span class="mono">0x092C</span> 才是 PLL 误差。
         EEPROM 接口在 <span class="mono">0x0500</span>，<span class="mono">0x0F00</span> 是数字 IO。
-        这些偏移在 ETG.1000.4 Table 31/33/37/60 里逐条给出。
+        这些偏移在 ETG.1000.4 Table 31/33/37/60 与 <span class="mono">ESC Datasheet §II</span> §2.45–2.51 里逐条给出。
       </div>
 
       <!-- ============ 6 · SyncManager ============ -->
@@ -318,9 +319,9 @@
       </div>
 
       <div class="note" style="margin-top:14px">
-        <b>0x0980 之后不是 ETG 强制的。</b>ETG.1000.4 §6.8 只规定到 0x0935 与 0x0980 起的一段“DL-user 保留区”；
-        SYNC/LATCH 单元的具体寄存器布局是 ET1100 系列器件的事实标准，各家 ESC 可能略有差异——
-        这正是“只看 ETG 规范不够、还要看数据手册”的地方。<a href="dc.html">分布式时钟页</a>有完整的仿真。
+        <b>0x0980 之后的 SYNC/LATCH 单元在 ET1100 数据手册 Section II §2.49.3–2.49.6 中有完整定义</b>
+        （Cyclic Unit Control、SYNC Out、Latch In、SyncManager Event Times）。它是厂商文档补全的部分——
+        这正是“只看 ETG 规范不够、还要配数据手册”的典型例子。<a href="dc.html">分布式时钟页</a>有完整的仿真。
       </div>
 
       <!-- ============ 8 · KickCAT ============ -->
@@ -427,9 +428,10 @@ switch (header-&gt;command)
       <!-- ============ 9 · 文档 ============ -->
       <h2 id="docs">9 · 文档够不够？</h2>
       <p class="lede">
-        结论先说：<b>讲清楚“ESC 怎么工作”够了；要动手实现或调试还不够。</b>
-        本地这 17 份 ETG 文档定义了 ESC 对外可见的行为契约，但没有一本描述芯片内部——
-        那属于厂商数据手册。
+        结论：<b>够了。</b>本地 17 份 ETG 文档定义了 ESC 对外可见的行为契约，
+        新增的三份 Beckhoff 数据手册（Section I 技术 162 页、Section II 寄存器 107 页、
+        ET1100 完整手册 124 页）把芯片内部、逐位寄存器与电气时序补齐——
+        两者合起来覆盖了从“为什么”到“怎么焊”的全链路。
       </p>
 
       <h3>本地文档给到了什么</h3>
@@ -443,18 +445,21 @@ switch (header-&gt;command)
             <tr><td class="mono">ETG.1020</td><td>AL Status Code 全表、SII 细节、协议增强</td><td><span class="badge free">错误码够</span></td></tr>
             <tr><td class="mono">ETG.2200</td><td>Section I §3.2 帧处理顺序（环岛）、§4.4 ESC + PDI 选型、Section II 指向厂商产品与 ESC 总览</td><td><span class="badge w">工程视角，部分够</span></td></tr>
             <tr><td class="mono">ESC_Overview.pdf</td><td>各厂商 ESC 的资源对比表：端口、DPRAM、SM/FMMU 数量、DC、PDI</td><td><span class="badge w">只够选型</span></td></tr>
+            <tr><td class="mono">ESC Datasheet §I<br><span class="small faint">technology v2.5 · 162 页</span></td><td>帧处理与转发机制、拓扑、三种同步方式、PHY 选型、ESM、邮箱、FMMU/SM 概念、DC 原理</td><td><span class="badge free">原理补齐</span></td></tr>
+            <tr><td class="mono">ESC Datasheet §II<br><span class="small faint">registers 3.0 · 107 页</span></td><td><b>逐位寄存器定义</b>：2.1–2.51 节覆盖 0x0000–0x0FFF 全部寄存器，含 CYCLIC/SYNC/LATCH 单元与器件专属区 0x0E00</td><td><span class="badge free">权威寄存器表</span></td></tr>
+            <tr><td class="mono">ET1100 Datasheet<br><span class="small faint">v2.1 · 124 页</span></td><td>封装与引脚、电源与时钟、PDI 时序、EEPROM 时序、AC 时序表（含 Table 91 转发延时实测值）、热特性</td><td><span class="badge free">硬件实现齐了</span></td></tr>
           </tbody>
         </table>
       </div>
 
-      <h3>还缺什么</h3>
+      <h3>文档清单</h3>
       <div class="scroll">
         <table class="tbl">
-          <thead><tr><th>缺的文档</th><th>它能补上什么</th><th>优先级</th></tr></thead>
+          <thead><tr><th>文档</th><th>它能补上什么</th><th>优先级</th></tr></thead>
           <tbody>
-            <tr><td><b>ET1100 数据手册</b><br><span class="small faint">Beckhoff ESC 数据手册</span></td>
-                <td>ETG.2200 §1.1 自己就推荐它：“Section I 是完整的 EtherCAT 功能描述，Section II 是 ESC 寄存器说明，Section III 是硬件规格”。内部框图、逐位寄存器、PDI 时序、EEPROM 时序、SYNC/LATCH、电源与时钟，全在这里。</td>
-                <td><span class="badge e">强烈建议</span></td></tr>
+            <tr><td><b>ET1100 数据手册</b><br><span class="small faint">已下载 · et1000_doc/</span></td>
+                <td>内部框图、逐位寄存器、PDI 时序、EEPROM 时序、电源与时钟——ETG.2200 §1.1 明确指向它</td>
+                <td><span class="badge free">已有</span></td></tr>
             <tr><td><b>ET1810 / ET1815 / ET1820 IP 核手册</b></td><td>FPGA 实现时的可配置项：FMMU/SM 数量、端口数、PDI 类型、DC 选项</td><td><span class="badge w">做 FPGA 才需要</span></td></tr>
             <tr><td><b>LAN9252 数据手册</b>（或 XMC4800 参考手册）</td><td>具体器件的 SPI/并口 PDI 时序、寄存器差异、中断引脚——KickCAT 的示例从站正是这两颗</td><td><span class="badge w">照 KickCAT 做要</span></td></tr>
             <tr><td><b>厂商勘误表（Errata）</b></td><td>“规范这么写、这颗芯片实际不这样”的清单，量产前必看</td><td><span class="badge w">调试阶段</span></td></tr>

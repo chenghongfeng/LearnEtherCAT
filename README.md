@@ -48,7 +48,7 @@ node .tools/serve.mjs 4173
 | 06 | `eoe-foe-soe.html` | EoE / FoE / SoE 逐字节拆解：EoE 4 字节头与 32 字节分片、FoE 六个 OpCode 与固件下载时序、SoE 的 IDN 模型；四协议对比 |
 | 07 | `slave.html` | 真实 ESI 示例（3 个官方 XML）解析成可点的树；SII/EEPROM 字表；从站实现路线；CTT 测试章节 |
 | 08 | `dc.html` | 分布式时钟：晶振漂移、ARMW 补偿、SYNC0 时序；DC 寄存器速查；四个常见坑 |
-| 09 | `spec.html` | 17 份本地文档索引：版本、访问级别、路径、关键章节、被哪个模块使用；条款→页面对照；覆盖矩阵；**还缺哪些文档** |
+| 09 | `spec.html` | 20 份本地文档索引（17 份 ETG + 3 份 ESC 数据手册）：版本、访问级别、路径、关键章节；条款→页面对照；覆盖矩阵；**还缺哪些文档** |
 | 10 | `guide.html` | 《EtherCAT 学习手册》通读版（由 `docs/guide.md` 编译） |
 | 11 | `glossary.html` | 54 个术语的英文全称、中文名、一句话定义、详细解释、规范出处与相关词；支持搜索与分组 |
 

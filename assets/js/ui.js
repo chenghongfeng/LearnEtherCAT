@@ -20,7 +20,7 @@ export const NAV = [
   { id: 'glossary', num: '11', href: 'glossary.html', title: '术语表',       tag: 'KW' },
 ];
 
-export function renderShell({ active, crumbs = [], title = 'EtherCAT 可视化学习站', docCount = 17 }) {
+export function renderShell({ active, crumbs = [], title = 'EtherCAT 可视化学习站', docCount = (window.EC_DATA?.SPECS?.length || 20) }) {
   const nav = NAV.map(n => {
     if (n.group) return `<div class="nav-group">${n.group}</div>`;
     return `<a href="${n.href}" class="${n.id === active ? 'active' : ''}">
@@ -42,7 +42,7 @@ export function renderShell({ active, crumbs = [], title = 'EtherCAT 可视化�
     <nav class="nav">${nav}</nav>
     <div class="nav-group" style="margin-top:22px">本地资料</div>
     <a class="nav" style="display:block;padding:6px 10px;font-size:12px;color:var(--text-faint)"
-       href="spec.html">etg_doc/ · ${docCount} 份文档</a>
+       href="spec.html">本地资料 · ${docCount} 份文档</a>
   `;
 
   const top = document.createElement('div');
@@ -176,7 +176,7 @@ const PAGE_CHECKS = {
     ['ESC 框图', () => document.querySelectorAll('#esc-svg .blk').length >= 8],
     ['流水线', () => document.querySelectorAll('#pipe-steps .step').length >= 8],
     ['内存地图', () => document.querySelectorAll('#memmap .seg').length >= 8],
-    ['寄存器表', () => (window.EC_DATA?.REGS?.length || 0) >= 40],
+    ['寄存器表', () => (window.EC_DATA?.REGS?.length || 0) >= 70],
     ['KickCAT 对照', () => document.querySelectorAll('#kc-table tbody tr').length >= 8],
   ],
   'eoe-foe-soe': [
@@ -192,7 +192,7 @@ const PAGE_CHECKS = {
     ['寄存器表', () => !!document.querySelector('#dc-reg-tbl tbody tr')],
   ],
   spec: [
-    ['文档行', () => document.querySelectorAll('.maprow').length >= 15],
+    ['文档行', () => document.querySelectorAll('.maprow').length >= 18],
     ['覆盖矩阵', () => document.querySelectorAll('#cov-tbl tbody tr').length >= 15],
   ],
   guide: [
