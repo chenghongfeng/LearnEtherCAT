@@ -44,16 +44,16 @@
           <h3>测传播延时</h3>
           <p class="small muted">
             主站发一帧绕环。每个从站记录“端口 0 收到 SOF”和“端口 1 收到 SOF”的时刻，
-            差值 <code class="mono">0x0980</code> 就包含了下游链路的传播时间。逐级累加即可得到每个从站相对参考时钟的延时。
+            差值（端口 0 的 <code class="mono">0x0900</code> 与端口 1 的 <code class="mono">0x0904</code>）就包含了下游链路的传播时间。逐级累加即可得到每个从站相对参考时钟的延时，写回该站的 <code class="mono">0x0928</code> 传输延时。
           </p>
-          <p class="small"><span class="src">ETG.1000.4 §6.8 · 寄存器 0x0900–0x0980</span></p>
+          <p class="small"><span class="src">ETG.1000.4 §6.8 · 寄存器 0x0900–0x0935</span></p>
         </div>
         <div class="card">
           <div class="badge s">Step 2</div>
           <h3>写偏移</h3>
           <p class="small muted">
             参考时钟把系统时间写进帧；其它从站在帧经过时把自己的本地时间与帧里的系统时间相减，
-            结果写进 <code class="mono">0x0920</code> 系统时间偏移。之后“系统时间 = 本地时间 − 偏移”。
+            结果写进 <code class="mono">0x0920</code> 系统时间偏移（参考时钟则在 <code class="mono">0x0910</code> 直接给出系统时间）。之后“系统时间 = 本地时间 − 偏移”。
           </p>
           <p class="small"><span class="src">ETG.1000.4 §6.8.2</span></p>
         </div>
@@ -62,7 +62,7 @@
           <h3>持续补偿漂移</h3>
           <p class="small muted">
             晶振有温漂。主站周期性用 <b>ARMW/FRMW</b> 读参考时钟的漂移值并“多写”到所有从站
-            （<code class="mono">0x0928</code>），让每个从站微调自己的时钟速率。
+            （<code class="mono">0x0910</code>），让每个从站微调自己的时钟速率；偏差可从 <code class="mono">0x092C</code> 系统时间差读出。
           </p>
           <p class="small"><span class="src">ETG.1000.4 §5.4.1.8 / ETG.1500 §5.13.2</span></p>
         </div>
@@ -254,12 +254,12 @@ function draw() {
 function drawRegs() {
   const err0 = st[1].driftErr;
   const rows = [
-    ['0x0900 系统时间', `${(t / NS).toFixed(6)} s`],
-    ['0x0910 接收时间', `${((t + st[0].delay) / NS).toFixed(6)} s`],
+    ['0x0910 系统时间', `${(t / NS).toFixed(6)} s`],
+    ['0x0900 接收时间(端口0)', `${((t + st[0].delay) / NS).toFixed(6)} s`],
     ['0x0920 偏移 ESC#1', `${fmt(st[1].offsetErr, 0)} ns`],
-    ['0x0928 漂移 ESC#1', `${fmt(err0, 0)} ns`],
-    ['0x0980 延时 ESC#1', `${st[1].delay} ns`],
-    ['0x0C00 DC 激活', '0x0300（SYNC0 + 锁存）'],
+    ['0x092C 时间差 ESC#1', `${fmt(err0, 0)} ns`],
+    ['0x0928 传输延时 ESC#1', `${st[1].delay} ns`],
+    ['0x0981 DC 激活', '0x03（SYNC0 使能 + 循环运行）'],
   ];
   document.getElementById('regs').innerHTML = rows.map(([k, v]) =>
     `<span class="k">${k}</span><span class="v">${v}</span>`).join('');
@@ -354,7 +354,7 @@ document.getElementById('comp').addEventListener('change', e => {
 });
 
 /* ---------------- 寄存器表 ---------------- */
-const DC_REGS = REGS.filter(r => r.addr.startsWith('0x09') || r.addr === '0x0C00' || r.addr === '0x0500');
+const DC_REGS = REGS.filter(r => r.addr.startsWith('0x09') || r.addr === '0x0981');
 document.getElementById('dc-reg-tbl').innerHTML = `
   <thead><tr><th>地址</th><th>名称</th><th>宽度</th><th>读写</th><th>作用</th></tr></thead>
   <tbody>${DC_REGS.map(r => `<tr>

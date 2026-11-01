@@ -252,7 +252,7 @@ renderMatrix();
 const SEQ = [
   { m: '广播/位置寻址探测：BRD 或 APRD 遍历，确认从站数量', s: 'ESC 转发并响应，ADP 递减',
     d: '主站此时还不知道站地址，只能用“第几个”来数。<span class="src">ETG.1000.4 §5.4</span>' },
-  { m: '读 SII / EEPROM：厂商、产品码、邮箱大小、默认 FMMU/SM', s: '通过 0x0F00 EEPROM 接口返回',
+  { m: '读 SII / EEPROM：厂商、产品码、邮箱大小、默认 FMMU/SM', s: '通过 0x0500 EEPROM 接口返回',
     d: 'SII 决定主站怎么配这个从站；这份信息应和 ESI 文件一致。<span class="src">ETG.2010 / ETG.2000</span>' },
   { m: '分配站地址并写入 0x0010（APWR）', s: 'ESC 保存站地址',
     d: '之后就可以用 FPRD/FPWR 定向访问，不再依赖物理顺序。<span class="src">ETG.1500 §5.5</span>' },
@@ -266,7 +266,7 @@ const SEQ = [
     d: 'SM2 = 输出（RxPDO），SM3 = 输入（TxPDO）；FMMU 把逻辑地址映射到物理地址。<span class="src">ETG.1000.4 §6.6–6.7</span>' },
   { m: '请求 SAFEOP：写 AL Control = 0x04', s: '输入有效，输出保持安全值',
     d: '此时可以先用输入数据做校验；输出不会驱动负载。<span class="src">ETG.1000.6 §5.4</span>' },
-  { m: '启动 DC：写 0x0900 系统时间、0x0920 偏移、0x0980 延时、0x0C00 激活 SYNC0', s: '时钟对齐，SYNC0 开始输出',
+  { m: '启动 DC：写 0x0928 传输延时、0x0920 偏移、0x0990 启动时间、0x0981 激活 SYNC0', s: '时钟对齐，SYNC0 开始输出',
     d: '需要在 SAFEOP 下完成，才能保证进 OP 后节拍已稳定。<span class="src">ETG.1000.4 §6.8</span>' },
   { m: '请求 OP：写 AL Control = 0x08', s: 'ESM 进入 OP，输入输出全部有效',
     d: '进入正常生产；此后任何 AL 错误都会退回 SAFEOP/PREOP。<span class="src">ETG.1000.6 §5.3</span>' },

@@ -40,6 +40,7 @@
 <a href="#t-1-4-三种寻址方式的生命周期" class="lvl3">1.4 三种寻址方式的生命周期</a>
 <a href="#t-2-一次周期通信的完整路径" class="lvl2">2. 一次周期通信的完整路径</a>
 <a href="#t-2-1-工作计数器-WKC-主站的签收单" class="lvl3">2.1 工作计数器 WKC：主站的签收单</a>
+<a href="#t-2-2-ESC-内部-一帧是怎么被-顺手-处理的" class="lvl3">2.2 ESC 内部：一帧是怎么被&quot;顺手&quot;处理的</a>
 <a href="#t-3-状态机-为什么上电后不能立刻交换过程数据" class="lvl2">3. 状态机：为什么上电后不能立刻交换过程数据</a>
 <a href="#t-4-邮箱-配置期怎么说话" class="lvl2">4. 邮箱：配置期怎么说话</a>
 <a href="#t-4-1-SDO-的三种传法" class="lvl3">4.1 SDO 的三种传法</a>
@@ -142,6 +143,15 @@ ESC #0 ──► ESC #1 ──► ESC #2 ──► ESC #3 ──► ESC #4
 </ul>
 <p>注意 WKC 只证明"有从站处理了"，不证明"数据是对的"。数据正确性要靠 AL Status、CRC 计数、 以及应用层的合理性检查。</p>
 <p>〔ETG.1000.4 §5.4.1.1〕</p>
+<h3 id="t-2-2-ESC-内部-一帧是怎么被-顺手-处理的">2.2 ESC 内部：一帧是怎么被"顺手"处理的</h3>
+<p>ESC（子设备控制器）不是网卡。它是一张内存图加几个状态机，对每一帧只做四件事： <strong>转发、搬运、记账、盖时间戳</strong>。应用逻辑跑在本地 MCU 上，通过 PDI 读写 ESC 的内存。</p>
+<p>内部就这么几块（点本站 <a href="../esc.html">ESC 内部原理</a> 页可交互查看）：</p>
+<div class="scroll"><table class="tbl"><thead><tr><th>方块</th><th>作用</th><th>关键寄存器</th></tr></thead><tbody><tr><td>端口 0–3 + 自动转发器</td><td>收帧、按开/闭环规则送到下一个端口；断链时本地环回</td><td><code>0x0100</code> DL Control / <code>0x0110</code> DL Status</td></tr><tr><td>EPU（帧处理单元）</td><td>逐条解析 PDU，判定"是不是给我的"，命中就搬运并给 WKC 加数</td><td><code>0x0000</code>–<code>0x0008</code> DL 信息</td></tr><tr><td>FMMU（≤16）</td><td>32 位逻辑地址 → 内部物理地址，支持位级映射</td><td><code>0x0600 + 16n</code></td></tr><tr><td>SyncManager（≤16）</td><td>把 DPRAM 切成一致区，管邮箱/PDO 的空与满</td><td><code>0x0800 + 8n</code></td></tr><tr><td>DPRAM</td><td>寄存器区 <code>0x0000</code>–<code>0x0FFF</code> + 过程数据 RAM <code>0x1000</code> 起（0–60 KB）</td><td><code>0x0006</code> RAM 大小</td></tr><tr><td>DC 单元 + SYNC/LATCH</td><td>锁存接收时刻、维护系统时间、产生 SYNC0/1</td><td><code>0x0900</code>–<code>0x09A4</code></td></tr><tr><td>SII / EEPROM 接口</td><td>上电默认配置（站别名、邮箱、PDI 类型）</td><td><code>0x0500</code>–<code>0x0508</code></td></tr><tr><td>PDI</td><td>本地 MCU 的访问窗口（SPI / 并口 / 数字 IO）</td><td><code>0x0140</code> / <code>0x0220</code></td></tr><tr><td>看门狗</td><td>PDI 看门狗盯本地 MCU，过程数据看门狗盯主站刷新</td><td><code>0x0410</code> / <code>0x0420</code></td></tr></tbody></table></div>
+<p><strong>帧只被处理一次。</strong> 帧从端口 0 进入 EPU，处理完从 1/2/3 转发出去；从下游返回的帧只经过转发器， 不再进 EPU。这就是 ETG.2200 §3.2 说的"环岛（roundabout）"模型，也是 WKC 有意义的前提—— 每个从站对同一条 PDU 只计一次。</p>
+<p><strong>为什么必须硬件做。</strong> 交换机的存储转发要先把帧收全；100 个从站串成线，一帧就要走 100 次"收满 + 发送"。 EtherCAT 是边收边转：帧头一过，EPU 已经处理完这条 PDU。时延因此随<strong>从站数</strong>线性增长（每站约 0.3 µs）， 而不是随帧长增长。100 站、128 字节帧：边转发约 40 µs，存储转发约 1 ms。</p>
+<p><strong>位置寻址的"减 1"发生在每一站。</strong> 主站要访问第 k 站，ADP 初值写成 −k 的补码（第 1 站是 <code>0xFFFF</code>）； 帧每过一站 ADP 加 1，恰好加到 0 的那一站执行。没被选中的站也照常加 1，只是不动手。</p>
+<p><strong>两个常见误区</strong>：WKC 不等于从站数（读 +1、写 +2，一条 LRW 命中一站就是 3）； <code>0x0004</code> 写 16 不代表你能自由用 16 个 FMMU——那是"支持的实体数"，邮箱和 PDO 会占掉一部分。</p>
+<p>〔ETG.1000.4 §4.3 / §5.4 / §6 · ETG.2200 §3.2〕</p>
 <hr>
 <h2 id="t-3-状态机-为什么上电后不能立刻交换过程数据">3. 状态机：为什么上电后不能立刻交换过程数据</h2>
 <p>EtherCAT 从站有一个五态状态机（ESM）。主站写 <code>AL Control (0x0120)</code> 请求状态， 从站把当前状态放在 <code>AL Status (0x0130)</code>，出错时把原因放进 <code>AL Status Code (0x0134)</code>。</p>
@@ -200,17 +210,17 @@ ESC #0 ──► ESC #1 ──► ESC #2 ──► ESC #3 ──► ESC #4
 <p>即使帧按时到达，各从站的本地晶振也会漂。DC 的目标是让所有从站的时钟对齐到同一个系统时间， 并由 SYNC0 产生本地同步脉冲。</p>
 <h3 id="t-5-1-三步">5.1 三步</h3>
 <ol>
-<li><strong>测传播延时</strong>：帧绕环，每个从站记录端口 0 与端口 1 收到 SOF 的时刻，差值写入 <code>0x0980</code>；</li>
+<li><strong>测传播延时</strong>：主站广播写 <code>0x0900</code>，每个从站把各端口收到 SOF 的本地时刻锁存进</li>
 </ol>
-<p>逐级累加得到每个从站相对参考时钟的延时。</p>
+<p><code>0x0900</code>（端口 0）与 <code>0x0904</code>/<code>0x0908</code>/<code>0x090C</code>（端口 1–3）；主站读回求相邻端口之差， 逐级累加得到每个从站相对参考时钟的延时，再写进该站的 <code>0x0928</code> 传输延时。</p>
 <ol>
-<li><strong>写偏移</strong>：参考时钟把系统时间写进帧；其它从站用自己的本地时间减去帧里的系统时间，</li>
+<li><strong>写偏移</strong>：参考时钟把系统时间（<code>0x0910</code>）写进帧；其它从站用自己的本地时间减去帧里的系统时间，</li>
 </ol>
 <p>把差值写入 <code>0x0920</code>。之后"系统时间 = 本地时间 − 偏移"。</p>
 <ol>
-<li><strong>持续补偿漂移</strong>：主站周期性用 ARMW/FRMW 读参考时钟的漂移值并"多写"给所有从站（<code>0x0928</code>），</li>
+<li><strong>持续补偿漂移</strong>：主站周期性用 ARMW/FRMW 读参考时钟的系统时间（<code>0x0910</code>）并"多写"到所有从站的同一寄存器，</li>
 </ol>
-<p>微调每个从站的时钟速率。</p>
+<p>各站 PLL 据此微调本地时钟速率；残差可从 <code>0x092C</code> 系统时间差读出。 最后由 <code>0x09A0</code> 设 SYNC0 周期、<code>0x0990</code> 设启动时刻、<code>0x0981</code> 写使能位。</p>
 <h3 id="t-5-2-参考时钟">5.2 参考时钟</h3>
 <p>默认是"<strong>第一个支持 DC 的从站</strong>"。如果拓扑变化或该从站被换掉，系统时间基准会变， 所有偏移需要重算。部分主站允许显式指定参考从站。</p>
 <h3 id="t-5-3-SYNC0-SYNC1">5.3 SYNC0 / SYNC1</h3>
@@ -261,7 +271,7 @@ ESC #0 ──► ESC #1 ──► ESC #2 ──► ESC #3 ──► ESC #4
 <li>固定头：VendorId、ProductCode、Revision、Serial、硬件/软件版本、站别名、邮箱配置、CRC；</li>
 <li>之后按类别（Category）组织：Strings、General、FMMU、SyncManager、TxPDO、RxPDO、DC。</li>
 </ul>
-<p>访问通过 ESC 的 <code>0x0F00</code> EEPROM 接口。</p>
+<p>访问通过 ESC 的 <code>0x0500</code> EEPROM 接口。</p>
 <h3 id="t-7-3-一致性">7.3 一致性</h3>
 <p><code>ETG.7000.2</code> 是官方测试记录（A1–A10 章），测试中心按它逐项打勾： ESI、CTT 协议测试、指示灯、显式设备识别、DC、行规、标记、互操作。 开发阶段就应该按它自测，而不是等送测才发现问题。</p>
 <p>〔ETG.2000 / ETG.2010 / ETG.7000.2 / ETG.2200〕</p>
@@ -296,7 +306,7 @@ ESC #0 ──► ESC #1 ──► ESC #2 ──► ESC #3 ──► ESC #4
 <div class="scroll"><table class="tbl"><thead><tr><th>误解</th><th>事实</th></tr></thead><tbody><tr><td>"EtherCAT 是请求-响应式总线"</td><td>一帧穿过所有从站，从站就地读写；没有逐站请求</td></tr><tr><td>"从站收到帧才处理"</td><td>ESC 边收边转发，处理与转发同时进行</td></tr><tr><td>"WKC 对就说明数据对"</td><td>WKC 只证明有从站处理了，不证明数据内容正确</td></tr><tr><td>"站地址就是物理位置"</td><td>站地址是主站分配的；物理位置只用于上电枚举</td></tr><tr><td>"DC 就是 NTP 对时"</td><td>DC 是硬件时钟同步 + SYNC 脉冲，精度在纳秒级</td></tr><tr><td>"ESI 里写了就行"</td><td>固件对象字典、SII、ESI 三者必须一致</td></tr><tr><td>"周期越短越好"</td><td>受帧长、从站数、主站软件开销约束；先算预算再定周期</td></tr><tr><td>"EtherCAT 需要交换机"</td><td>不需要；它是环/线型，从站自带转发</td></tr></tbody></table></div>
 <hr>
 <h2 id="t-附录-A-寄存器速查">附录 A：寄存器速查</h2>
-<div class="scroll"><table class="tbl"><thead><tr><th>地址</th><th>名称</th><th>说明</th></tr></thead><tbody><tr><td>0x0000</td><td>Type</td><td>ESC 类型/端口数</td></tr><tr><td>0x0004</td><td>FMMU 数量</td><td>最多 16</td></tr><tr><td>0x0005</td><td>SyncManager 数量</td><td>通常 4–8</td></tr><tr><td>0x0010</td><td>站地址</td><td>Configured Station Address</td></tr><tr><td>0x0012</td><td>站别名</td><td>Station Alias</td></tr><tr><td>0x0120</td><td>AL Control</td><td>bit0–3 State，bit4 ErrInd，bit6 Ack</td></tr><tr><td>0x0130</td><td>AL Status</td><td>bit0–3 State，bit4 Err，bit6 Ack</td></tr><tr><td>0x0134</td><td>AL Status Code</td><td>错误码</td></tr><tr><td>0x0500</td><td>SYNC0</td><td>周期/相位/脉宽</td></tr><tr><td>0x0600+16n</td><td>FMMU n</td><td>逻辑→物理映射</td></tr><tr><td>0x0800+8n</td><td>SyncManager n</td><td>物理地址/长度/控制/状态/激活</td></tr><tr><td>0x0900</td><td>DC 系统时间</td><td>64 位 ns</td></tr><tr><td>0x0910</td><td>DC 接收时间</td><td>端口 0 SOF 时刻</td></tr><tr><td>0x0920</td><td>DC 偏移</td><td>本地 = 系统 + 偏移</td></tr><tr><td>0x0928</td><td>DC 漂移</td><td>ARMW/FRMW 补偿</td></tr><tr><td>0x0980</td><td>接收时间差</td><td>传播延时测量</td></tr><tr><td>0x0C00</td><td>DC 激活</td><td>SYNC0/1 使能</td></tr><tr><td>0x0F00</td><td>EEPROM 接口</td><td>读写 SII</td></tr></tbody></table></div>
+<div class="scroll"><table class="tbl"><thead><tr><th>地址</th><th>名称</th><th>说明</th></tr></thead><tbody><tr><td>0x0000</td><td>Type</td><td>ESC 类型/端口数</td></tr><tr><td>0x0004</td><td>FMMU 数量</td><td>最多 16</td></tr><tr><td>0x0005</td><td>SyncManager 数量</td><td>通常 4–8</td></tr><tr><td>0x0010</td><td>站地址</td><td>Configured Station Address</td></tr><tr><td>0x0012</td><td>站别名</td><td>Station Alias</td></tr><tr><td>0x0120</td><td>AL Control</td><td>bit0–3 State，bit4 ErrInd，bit6 Ack</td></tr><tr><td>0x0130</td><td>AL Status</td><td>bit0–3 State，bit4 Err，bit6 Ack</td></tr><tr><td>0x0134</td><td>AL Status Code</td><td>错误码</td></tr><tr><td>0x0500</td><td>EEPROM 接口</td><td>0x0502 控制 / 0x0504 地址 / 0x0508 数据</td></tr><tr><td>0x0600+16n</td><td>FMMU n</td><td>逻辑→物理映射</td></tr><tr><td>0x0800+8n</td><td>SyncManager n</td><td>物理地址/长度/控制/状态/激活</td></tr><tr><td>0x0900+4n</td><td>DC 接收时间</td><td>端口 0–3 各自收到 SOF 的本地时刻</td></tr><tr><td>0x0910</td><td>DC 系统时间</td><td>64 位 ns，ARMW/FRMW 的对象</td></tr><tr><td>0x0920</td><td>DC 系统时间偏移</td><td>本地 = 系统 + 偏移</td></tr><tr><td>0x0928</td><td>DC 传输延时</td><td>参考时钟到本地的固定延时</td></tr><tr><td>0x092C</td><td>DC 系统时间差</td><td>PLL 误差，bit31 符号</td></tr><tr><td>0x0934</td><td>DC 滤波深度</td><td>0x0934 时间差 / 0x0935 速度计数</td></tr><tr><td>0x0981</td><td>DC 激活</td><td>bit0 SYNC0、bit1 SYNC1 使能</td></tr><tr><td>0x0990</td><td>DC 启动时间</td><td>SYNC0 第一个绝对时刻</td></tr><tr><td>0x09A0</td><td>DC SYNC0 周期</td><td>周期（ns），0x09A4 为 SYNC1</td></tr></tbody></table></div>
 <h2 id="t-附录-B-AL-Status-Code-速查">附录 B：AL Status Code 速查</h2>
 <div class="scroll"><table class="tbl"><thead><tr><th>码</th><th>含义</th></tr></thead><tbody><tr><td>0x0000</td><td>无错误</td></tr><tr><td>0x0011</td><td>请求了非法状态迁移</td></tr><tr><td>0x0012</td><td>未知状态</td></tr><tr><td>0x0013</td><td>不支持 BOOT</td></tr><tr><td>0x0016</td><td>邮箱 SM 配置不匹配</td></tr><tr><td>0x0017</td><td>过程数据 SM 配置不匹配</td></tr><tr><td>0x001D</td><td>输出配置错误</td></tr><tr><td>0x001E</td><td>输入配置错误</td></tr><tr><td>0x001F</td><td>看门狗触发</td></tr><tr><td>0x0024</td><td>无有效输入数据</td></tr><tr><td>0x0025</td><td>无有效输出数据</td></tr><tr><td>0x0026</td><td>同步错误</td></tr><tr><td>0x0029</td><td>DC 同步错误</td></tr><tr><td>0x0030</td><td>无效的 DC 配置</td></tr><tr><td>0x0033</td><td>邮箱看门狗</td></tr></tbody></table></div>
 <p>完整码表见 ETG.1020 §4。</p>
