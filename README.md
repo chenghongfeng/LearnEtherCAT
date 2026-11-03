@@ -223,6 +223,31 @@ node .tools/check_kw_tour.mjs
 
 ---
 
+## 发布（GitHub Actions → GitHub Pages）
+
+推送到 `main` / `master` 后，`.github/workflows/pages.yml` 会自动构建并发布到
+GitHub Pages；也可以在 Actions 页手动触发（`workflow_dispatch`）。
+
+流水线三步：
+
+1. **构建**：`build_core.py` 重新生成 `assets/js/ec-core.js`，`build_guide.py` 重新编译
+   `guide.html`；随后 `git diff --exit-code` 校验生成物与源码一致（忘提交生成物会失败）。
+2. **校验**：对 12 个页面逐一跑 `.tools/check_syntax.py` 做内联脚本语法检查。
+3. **打包发布**：`.tools/build_site.py public` 只收 `*.html` + `assets/` + `docs/` +
+   `README.md`，`etg_doc/`、`et1000_doc/`、`KickCAT/` 不会被打包。
+
+启用方式：仓库 **Settings → Pages → Build and deployment → Source** 选
+**GitHub Actions**（只需设置一次）。
+
+本地预览发布目录：
+
+```bash
+python3 .tools/build_site.py public
+node .tools/serve.mjs 4173   # 把 serve.mjs 的根目录指向 public/ 或直接访问文件
+```
+
+---
+
 ## 版权与边界
 
 - `etg_doc/` 下的 PDF 版权归 **EtherCAT Technology Group (ETG)** 所有。

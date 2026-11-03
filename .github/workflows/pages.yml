@@ -1,0 +1,63 @@
+name: Deploy 学习站到 GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 校验并打包静态站点
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 重新生成构建产物
+        run: |
+          python3 .tools/build_core.py
+          python3 .tools/build_guide.py
+
+      - name: 检查生成物是否与源码同步
+        run: git diff --exit-code -- assets/js/ec-core.js guide.html
+
+      - name: 校验页面内联脚本语法
+        run: |
+          for f in *.html; do
+            echo "--- $f"
+            python3 .tools/check_syntax.py "$f"
+          done
+
+      - name: 打包发布目录
+        run: python3 .tools/build_site.py public
+
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    name: 发布到 GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -20,3 +20,6 @@ KickCAT/
 .idea/
 .DS_Store
 Thumbs.db
+
+# CI 打包出的发布目录
+public/
