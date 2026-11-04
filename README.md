@@ -1,5 +1,8 @@
 # EtherCAT 可视化学习站
 
+> **在线版：<https://chenghongfeng.github.io/LearnEtherCAT/>**
+> 由 GitHub Actions 自动发布，推送 `master` 即更新。
+
 把 EtherCAT 协议栈拆成可以点的图：**一帧怎么组成、怎么穿过从站、状态机怎么走、邮箱怎么说话、时间怎么同步**。
 每个图元都标注了它来自 `etg_doc/` 下哪本 ETG 规范的哪一节。
 
@@ -12,6 +15,11 @@
 ---
 
 ## 快速开始
+
+**方式零：直接看线上版**
+
+<https://chenghongfeng.github.io/LearnEtherCAT/> —— 和本地 `http://` 行为完全一致，
+不用装任何东西。
 
 **方式一：直接打开（file://）**
 
@@ -51,6 +59,72 @@ node .tools/serve.mjs 4173
 | 09 | `spec.html` | 20 份本地文档索引（17 份 ETG + 3 份 ESC 数据手册）：版本、访问级别、路径、关键章节；条款→页面对照；覆盖矩阵；**还缺哪些文档** |
 | 10 | `guide.html` | 《EtherCAT 学习手册》通读版（由 `docs/guide.md` 编译） |
 | 11 | `glossary.html` | 54 个术语的英文全称、中文名、一句话定义、详细解释、规范出处与相关词；支持搜索与分组 |
+
+---
+
+## KickCAT 源码学习
+
+[KickCAT](https://github.com/leducp/KickCAT) 是一套轻量级 EtherCAT 主站 + 从站协议栈
+（同一份代码里两边都有，跑在 Linux/RT-PREEMPT、Windows、PikeOS、NuttX 上），
+自带**软件 ESC 和网络仿真器**，没有硬件也能把整条总线跑起来。
+
+本站 `esc.html` 的“KickCAT 软件 ESC 对照”一栏，就是把 ESC 内部原理逐条映射到它的实现上。
+本地参考用的源码副本放在 `KickCAT/`（**不随本仓库分发**，见 `.gitignore`）：
+
+| 项 | 值 |
+|---|---|
+| 上游仓库 | <https://github.com/leducp/KickCAT> |
+| 本地快照 | `v2.6-rc3-12-gcb2e1a1` |
+| 分支 | `master` |
+| 许可 | 见 `KickCAT/LICENSE` |
+
+### 克隆一份源码
+
+```bash
+git clone https://github.com/leducp/KickCAT.git KickCAT
+git -C KickCAT checkout v2.6-rc3     # 或跟 master
+```
+
+### 它自带哪些文档（在 `KickCAT/docs/` 下）
+
+| 文件 | 内容 |
+|---|---|
+| `FEATURES.md` | **主站/从站功能支持矩阵**，标出 Supported / Partial / Experimental / Planned / Not planned；判断“这个特性它到底实现了没”看这里 |
+| `architecture.md` | 主站 `Bus → Link → Frame → Socket` 分层与从站 `ESM/PDO/OD` 结构 |
+| `SIMULATION.md` | 软件 ESC 与仿真器怎么用，**无硬件跑总线**的完整步骤 |
+| `BUILDING.md` | 构建依赖与编译步骤（Conan + CMake） |
+| `TOOLS.md` | CLI 工具、两个 ImGui GUI（`kickui`、`ethercat_gui`）与 PySide6 应用 |
+| `PERFORMANCE.md` | 周期时间、抖动等实测数据 |
+| `HARDWARE.md` | 真实硬件走通流程（NuttX 从站固件、EEPROM 烧写、Freedom K64F + LAN9252 全流程） |
+
+### 源码结构速览
+
+```
+KickCAT/
+├── lib/              # 协议栈本体
+│   ├── master/       #   主站：Bus → Link → Frame → Socket
+│   ├── slave/        #   从站：ESM / PDO / OD / CoE
+│   ├── simulation/   #   软件 ESC
+│   ├── include/ src/ #   公共头文件与实现
+│   └── py_bindings/  #   Python 绑定
+├── simulation/       # 网络仿真器（network_simulator.cc + 虚拟网卡脚本）
+├── examples/         # 可运行示例：master/（simulated_bus、easycat、ds402_drive、
+│                     #   marvin、wdc_foot、gateway…）+ slave/（lan9252、xmc4800）
+├── tools/            # kickui（ImGui GUI）、ethercat_gui、eeprom_editor、foe、benchmarking…
+├── unit/             # 单元测试
+├── test/             # 集成测试
+├── cmake/ conan/     # 构建与依赖
+└── docs/             # 上面那批文档
+```
+
+### 和本站的关系
+
+- **读协议**：`esc.html`、`al.html`、`dc.html` 讲“规范要求什么”。
+- **看实现**：`esc.html` 的 KickCAT 对照表讲“它怎么实现这一段”。
+- **动手跑**：按 `KickCAT/docs/BUILDING.md` 编出来，用 `simulation/` 起软件 ESC，
+  再跑 `examples/`，就能在没有真实从站的情况下验证本站讲的帧格式、状态迁移和 PDO 交换。
+
+> `KickCAT/` 是第三方仓库，版权归原作者；本仓库只做本地参考，不打包、不发布。
 
 ---
 
@@ -117,8 +191,12 @@ LearnEtherCAT/
 │   ├── js/ec-core.js               # 上面两者合并出的 classic 包（生成物，页面实际加载）
 │   └── data/esi-examples.json      # 由真实 ESI XML 生成的精简树
 ├── docs/guide.md                   # 学习手册源文件
+├── docs/assets/                    # README 与手册用的截图
 ├── etg_doc/                        # 你提供的官方 ETG 文档（不随仓库分发）
+├── et1000_doc/                     # ESC 数据手册（不随仓库分发）
+├── KickCAT/                        # KickCAT 源码副本（不随仓库分发）
 ├── start.ps1                       # 一键启动本地服务器
+├── .github/workflows/pages.yml     # GitHub Pages 发布流水线
 └── .tools/                         # 构建与测试脚本（不参与网页运行）
     ├── serve.mjs                   # 静态服务器
     ├── gen_esi.mjs                 # ESI XML → JSON
@@ -130,13 +208,14 @@ LearnEtherCAT/
     ├── domtest.mjs                 # jsdom 加载页面，捕获运行时错误
     ├── verify_all.mjs              # 真实 Chrome 全站回归（file:// 与 http://）
     ├── check_selfcheck.mjs         # 自检徽标正/负用例
-    ├── check_frame_interactions.mjs# frame.html 交互专项
+    ├── check_frame_interactions.mjs # frame.html 交互专项
     ├── check_frame_v2.mjs          # frame.html 引导/矩阵/掉线/小测专项
     ├── check_glossary.mjs          # 术语表与关键词弹窗专项
     ├── check_kw_tour.mjs           # 导览切步后的关键词回归
     ├── shot_clip.mjs               # 长页面按纵向区间截图
     ├── shot_keyword.mjs            # 关键词弹窗截图（用于 README）
-    └── check_file_proto.mjs        # 单独验证 file:// 下脚本是否执行
+    ├── check_file_proto.mjs        # 单独验证 file:// 下脚本是否执行
+    └── build_site.py               # 打包发布目录（CI 与本地预览共用）
 ```
 
 ---
@@ -205,26 +284,41 @@ node .tools/check_kw_tour.mjs
 
 ## 发布（GitHub Actions → GitHub Pages）
 
+**线上地址：<https://chenghongfeng.github.io/LearnEtherCAT/>**
+
 推送到 `main` / `master` 后，`.github/workflows/pages.yml` 会自动构建并发布到
 GitHub Pages；也可以在 Actions 页手动触发（`workflow_dispatch`）。
 
-流水线三步：
+流水线两步：
 
-1. **构建**：`build_core.py` 重新生成 `assets/js/ec-core.js`，`build_guide.py` 重新编译
-   `guide.html`；随后 `git diff --exit-code` 校验生成物与源码一致（忘提交生成物会失败）。
-2. **校验**：对 12 个页面逐一跑 `.tools/check_syntax.py` 做内联脚本语法检查。
-3. **打包发布**：`.tools/build_site.py public` 只收 `*.html` + `assets/` + `docs/` +
-   `README.md`，`etg_doc/`、`et1000_doc/`、`KickCAT/` 不会被打包。
+1. **校验并打包**（`build` job）
+   - 跑 `build_core.py` 重建 `assets/js/ec-core.js`、`build_guide.py` 重建 `guide.html`；
+   - `git diff --exit-code` 校验生成物与源码一致（忘提交生成物会失败）；
+   - 对 12 个页面逐一跑 `.tools/check_syntax.py` 做内联脚本语法检查；
+   - `build_site.py public` 打包：只收 `*.html` + `assets/` + `docs/` + `README.md`，
+     `etg_doc/`、`et1000_doc/`、`KickCAT/` 不会被打包。
+2. **部署**（`deploy` job）：`actions/deploy-pages` 发布 `public/`，需要 `pages` + `id-token` 权限。
 
-启用方式：仓库 **Settings → Pages → Build and deployment → Source** 选
-**GitHub Actions**（只需设置一次）。
+### 首次启用（只需一次）
 
-本地预览发布目录：
+仓库 **Settings → Pages → Build and deployment → Source** 选 **GitHub Actions**，
+或用有 `repo` 权限的 token 调 API：
 
 ```bash
-python3 .tools/build_site.py public
-node .tools/serve.mjs 4173   # 把 serve.mjs 的根目录指向 public/ 或直接访问文件
+gh api -X POST repos/chenghongfeng/LearnEtherCAT/pages -f build_type=workflow
 ```
+
+`GET /repos/{owner}/{repo}/pages` 返回 404 就说明还没启用；这时 `deploy` 会报
+`Failed to create deployment (status: 404) ... Ensure GitHub Pages has been enabled`。
+
+### 本地预览发布目录
+
+```bash
+python3 .tools/build_site.py public      # 生成 public/
+cd public && python3 -m http.server 4173 # 或 node ../.tools/serve.mjs 4173
+```
+
+`public/` 已在 `.gitignore` 里，不会被提交。
 
 ---
 
@@ -234,6 +328,8 @@ node .tools/serve.mjs 4173   # 把 serve.mjs 的根目录指向 public/ 或直�
   本仓库只做本地索引与学习摘要，**不复制原文、不重新分发规范**。
 - 标“会员”的文档需要 ETG 会员账号；标“免费”的可在 ETG 下载页公开获取。
 - 对外分享时请只分享代码与链接，不要打包 `etg_doc/`。
+- `et1000_doc/`（ESC 数据手册）与 `KickCAT/`（[leducp/KickCAT](https://github.com/leducp/KickCAT)）
+  同样是本地参考，版权归各自所有者，`.gitignore` 已排除，CI 也不会打包。
 - 实现以 ETG 官方英文最新版为准；旧版（如 ETG.1000 V1.0.2 中文版）在 DC、AL Status Code、
   ESI 上有差异。
 
